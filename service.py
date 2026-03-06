@@ -61,10 +61,14 @@ def install() -> str:
     # Deploy files to ~/.ctb/app/
     _deploy_to_app_dir()
 
+    import os
+    path_env = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+
     content = _PLIST_TEMPLATE.read_text()
     content = content.replace("__CTB_LAUNCHER__", str(_APP_DIR / "claude-tmux-bot"))
     content = content.replace("__CTB_WORKING_DIR__", str(_APP_DIR))
     content = content.replace("__CTB_HOME__", str(Path.home()))
+    content = content.replace("__CTB_PATH__", path_env)
 
     _INSTALLED_PLIST.write_text(content)
 
