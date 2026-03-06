@@ -175,6 +175,62 @@ while true; do
 done
 
 # =============================================
+#  8. Optional configuration
+# =============================================
+
+echo ""
+echo "─────────────────────────────────────────────"
+echo "  Step 3: Configuration (optional)"
+echo "─────────────────────────────────────────────"
+echo ""
+
+# Topic mode
+echo "  Topic mode — how tmux maps to Telegram topics:"
+echo "    1) session (default) — one topic per tmux session"
+echo "    2) window — one topic per tmux window"
+echo ""
+read -rp "  Choose [1/2] (Enter for default): " TOPIC_MODE_CHOICE
+if [ "$TOPIC_MODE_CHOICE" = "2" ]; then
+    sed -i '' "s|^#\? *CTB_TOPIC_MODE=.*|CTB_TOPIC_MODE=window|" "$ENV_FILE"
+    echo "  ✓ Topic mode: window"
+else
+    echo "  ✓ Topic mode: session"
+fi
+
+# Topic cleanup
+echo ""
+echo "  When a tmux session/window is killed, what should happen"
+echo "  to its Telegram topic?"
+echo "    1) Close the topic (default) — topic is archived but kept"
+echo "    2) Delete the topic — permanently removed"
+echo ""
+read -rp "  Choose [1/2] (Enter for default): " CLEANUP_CHOICE
+if [ "$CLEANUP_CHOICE" = "2" ]; then
+    if grep -q "CTB_TOPIC_CLEANUP" "$ENV_FILE" 2>/dev/null; then
+        sed -i '' "s|^#\? *CTB_TOPIC_CLEANUP=.*|CTB_TOPIC_CLEANUP=delete|" "$ENV_FILE"
+    else
+        echo "CTB_TOPIC_CLEANUP=delete" >> "$ENV_FILE"
+    fi
+    echo "  ✓ Topic cleanup: delete"
+else
+    echo "  ✓ Topic cleanup: close"
+fi
+
+# Sleep prevention
+echo ""
+echo "  Prevent Mac from sleeping while bot is running?"
+echo "    1) Yes (default) — keeps Mac awake via caffeinate"
+echo "    2) No"
+echo ""
+read -rp "  Choose [1/2] (Enter for default): " CAFFEINATE_CHOICE
+if [ "$CAFFEINATE_CHOICE" = "2" ]; then
+    sed -i '' "s|^#\? *CTB_CAFFEINATE=.*|CTB_CAFFEINATE=false|" "$ENV_FILE"
+    echo "  ✓ Caffeinate: off"
+else
+    echo "  ✓ Caffeinate: on"
+fi
+
+# =============================================
 #  Done
 # =============================================
 
@@ -183,12 +239,56 @@ echo "╔═══════════════════════�
 echo "║         ✓ Setup Complete!                ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
-echo "  Start a tmux session (if you don't have one):"
-echo "    tmux new-session -d -s main"
+
+# Ensure at least one tmux session exists
+if command -v tmux &>/dev/null; then
+    if ! tmux list-sessions &>/dev/null 2>&1; then
+        echo "  Creating default tmux session 'main'..."
+        tmux new-session -d -s main
+        echo "  ✓ Created tmux session 'main'"
+        echo ""
+    fi
+fi
+
+echo "  What would you like to do?"
 echo ""
-echo "  Run the bot:"
-echo "    python3 main.py"
+echo "    1) Start the bot now"
+echo "    2) Install as a service (auto-start on login)"
+echo "    3) Exit (start manually later with: python3 main.py)"
 echo ""
-echo "  Install as a service (from Telegram):"
-echo "    Send /service install in the Control topic"
-echo ""
+read -rp "  Choose [1/2/3]: " POST_CHOICE
+
+case "$POST_CHOICE" in
+    1)
+        echo ""
+        echo "  Starting the bot..."
+        echo ""
+        exec python3 "$SCRIPT_DIR/main.py"
+        ;;
+    2)
+        echo ""
+        echo "  Installing as a launchd service..."
+        cd "$SCRIPT_DIR"
+        SERVICE_RESULT=$(python3 -c "import service; print(service.install())" 2>&1)
+        if echo "$SERVICE_RESULT" | grep -q "^Error"; then
+            echo "  ⚠ $SERVICE_RESULT"
+            echo ""
+            echo "  Start manually instead:  python3 main.py"
+            echo "  Or install later from Telegram: /service install"
+        else
+            echo "  ✓ $SERVICE_RESULT"
+            echo ""
+            echo "  Manage from Telegram: /service status | /service uninstall"
+        fi
+        echo ""
+        ;;
+    *)
+        echo ""
+        echo "  To start the bot later:"
+        echo "    python3 main.py"
+        echo ""
+        echo "  To install as a service (from Telegram):"
+        echo "    Send /service install in the Control topic"
+        echo ""
+        ;;
+esac
