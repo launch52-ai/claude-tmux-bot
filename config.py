@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 from pathlib import Path
+from typing import Optional
 
 from pydantic_settings import BaseSettings
 
@@ -26,7 +25,7 @@ class Settings(BaseSettings):
     caffeinate: bool = True
 
     # Optional integrations
-    openai_api_key: str | None = None
+    openai_api_key: Optional[str] = None
 
     # Paths
     projects_dir: Path = Path.home() / "Projects"
