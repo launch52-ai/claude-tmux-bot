@@ -37,7 +37,7 @@ def install() -> str:
         return f"Error loading service: {result.stderr.strip()}"
 
     logger.info("Service installed and loaded")
-    return "Service installed and loaded. It will auto-start on login."
+    return "Service installed and running. It will auto-start on login."
 
 
 def uninstall() -> str:

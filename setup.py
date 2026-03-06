@@ -33,13 +33,11 @@ async def _detect(bot_token: str, timeout: int = 60) -> dict[str, int] | None:
         result["chat_id"] = chat_id
         result["user_id"] = user_id
 
-        status = "yes" if is_forum else "NO — please enable Topics in group settings first"
-        await message.reply(
-            f"Detected!\n\n"
-            f"Chat ID: {chat_id}\n"
-            f"Your User ID: {user_id}\n"
-            f"Forum topics: {status}"
-        )
+        if not is_forum:
+            await message.reply(
+                "⚠ This group does not have Topics enabled.\n"
+                "Please enable Topics in group settings first."
+            )
         found.set()
 
     async def _poll() -> None:
