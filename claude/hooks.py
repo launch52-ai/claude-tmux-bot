@@ -119,7 +119,7 @@ def _update_claude_settings() -> None:
             elif entry.get("command", "").startswith(script):
                 # Old-format CTB entry — migrate to new format
                 migrated.append({
-                    "matcher": {},
+                    "matcher": "",
                     "hooks": [{"type": entry.get("type", "command"), "command": entry["command"]}],
                 })
                 already_installed = True
@@ -127,7 +127,7 @@ def _update_claude_settings() -> None:
                 # Old-format entry from another tool — migrate it too
                 if "command" in entry:
                     migrated.append({
-                        "matcher": {},
+                        "matcher": "",
                         "hooks": [entry],
                     })
                 else:
@@ -135,7 +135,7 @@ def _update_claude_settings() -> None:
 
         if not already_installed:
             migrated.append({
-                "matcher": {},
+                "matcher": "",
                 "hooks": [hook_command],
             })
 

@@ -63,6 +63,14 @@ python3 main.py
 
 From Telegram, send `/service install` in the Control topic. The bot will auto-start on login and restart on crash.
 
+### Uninstall
+
+```bash
+./uninstall.sh
+```
+
+Removes the launchd service, Claude Code hooks, `~/.ctb` data, and `.env`. Prompts before deleting data.
+
 ## Configuration
 
 All configuration is via environment variables (with `CTB_` prefix) or a `.env` file in the project root.
