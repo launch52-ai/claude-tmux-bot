@@ -99,17 +99,11 @@ def _format_content_block(block: TranscriptContentBlock) -> str | None:
             return format_thinking_block(block.thinking)
         return None
     if isinstance(block, TranscriptToolUseBlock):
-        target = ""
-        if "file_path" in block.input:
-            target = f" on {block.input['file_path']}"
-        elif "command" in block.input:
-            cmd = block.input["command"][:80]
-            target = f": {cmd}"
-        return f"Running {block.tool_name}{target}..."
+        return None  # Skip individual tool use noise
     if isinstance(block, TranscriptToolResultBlock):
         if block.is_error:
             return f"Error: {block.content[:300]}"
-        return None  # Tool results are handled by in-place message editing
+        return None
     return None
 
 

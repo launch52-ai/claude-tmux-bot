@@ -62,7 +62,7 @@ class TmuxManager:
 
     def list_sessions(self) -> list[SessionInfo]:
         sessions: list[SessionInfo] = []
-        for sess in self.server.sessions:
+        for idx, sess in enumerate(self.server.sessions):
             windows: list[WindowInfo] = []
             for win in sess.windows:
                 panes: list[PaneInfo] = []
@@ -88,7 +88,7 @@ class TmuxManager:
                 SessionInfo(
                     session_id=sess.session_id,
                     session_name=sess.session_name,
-                    session_index=int(sess.session_index) if hasattr(sess, "session_index") else 0,
+                    session_index=idx,
                     windows=windows,
                 )
             )
