@@ -285,7 +285,7 @@ async def cmd_capture(
 
     text, truncated = format_terminal_output(content, settings.text_line_limit)
     markup = keyboards.screenshot_button() if truncated else None
-    await message.reply(text, parse_mode="Markdown", reply_markup=markup)
+    await message.reply(text, parse_mode="HTML", reply_markup=markup)
 
 
 @session_router.message(Command("screenshot"))
@@ -878,6 +878,13 @@ async def handle_claude_cmd_callback(
         return
 
     cmd = (callback.data or "").split(":", 1)[1]
+    allowed_cmds = {
+        "/compact", "/clear", "/cost", "/model", "/memory",
+        "/rewind", "/settings", "/help", "/doctor",
+    }
+    if cmd not in allowed_cmds:
+        await callback.answer("Unknown command.")
+        return
     await tmux.send_keys_claude(pane_id, cmd)
     await callback.answer(f"Sent {cmd}")
 
@@ -907,9 +914,13 @@ async def handle_history_callback(
 @control_router.callback_query(F.data.startswith("dir:"))
 async def handle_dir_browse(
     callback: CallbackQuery,
+    settings: Settings,
     **_: Any,
 ) -> None:
-    path = Path((callback.data or "").split(":", 1)[1])
+    path = Path((callback.data or "").split(":", 1)[1]).resolve()
+    if not _is_safe_browse_path(path, settings.projects_dir):
+        await callback.answer("Path not allowed.")
+        return
     if not path.is_dir():
         await callback.answer("Not a directory.")
         return
@@ -923,8 +934,15 @@ async def handle_dir_browse(
 
 
 @control_router.callback_query(F.data.startswith("dir_up:"))
-async def handle_dir_up(callback: CallbackQuery, **_: Any) -> None:
-    path = Path((callback.data or "").split(":", 1)[1])
+async def handle_dir_up(
+    callback: CallbackQuery,
+    settings: Settings,
+    **_: Any,
+) -> None:
+    path = Path((callback.data or "").split(":", 1)[1]).resolve()
+    if not _is_safe_browse_path(path, settings.projects_dir):
+        await callback.answer("Path not allowed.")
+        return
     if not path.is_dir():
         await callback.answer("Not a directory.")
         return
@@ -942,10 +960,15 @@ async def handle_dir_select(
     callback: CallbackQuery,
     tmux: TmuxManager,
     topics: TopicManager,
+    settings: Settings,
     **_: Any,
 ) -> None:
     path_str = (callback.data or "").split(":", 1)[1]
-    path = Path(path_str)
+    path = Path(path_str).resolve()
+
+    if not _is_safe_browse_path(path, settings.projects_dir):
+        await callback.answer("Path not allowed.")
+        return
 
     name = path.name or "session"
     session = tmux.create_session(name, start_directory=str(path))
@@ -1162,6 +1185,15 @@ def _render_history_page(
     kb = keyboards.history_keyboard(page, has_older)
 
     return body, kb
+
+
+def _is_safe_browse_path(path: Path, root: Path) -> bool:
+    """Ensure path is within the allowed root directory."""
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def _translate_key(combo: str) -> str:

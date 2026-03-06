@@ -85,6 +85,7 @@ class ClaudeWatcher:
             await self._update_action_bar(topic_id, claude_active=True)
         elif payload.event == HookEvent.SESSION_END:
             self._claude_active_panes.discard(pane_id)
+            self._transcript_readers.pop(payload.session_id, None)
             await self._update_action_bar(topic_id, claude_active=False)
         elif payload.event == HookEvent.USER_PROMPT_SUBMIT:
             self._claude_active_panes.add(pane_id)

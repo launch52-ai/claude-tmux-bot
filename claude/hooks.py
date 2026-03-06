@@ -244,6 +244,10 @@ class HookEventWatcher:
                     filepath.unlink()
                 except OSError:
                     pass
+
+            # Prevent unbounded growth of processed set
+            if len(self._processed) > 10000:
+                self._processed.clear()
         except FileNotFoundError:
             pass
 

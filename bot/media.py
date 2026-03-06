@@ -70,7 +70,9 @@ async def save_document(bot: Bot, message: Message) -> Path | None:
     if file.file_path is None:
         return None
 
-    name = doc.file_name or doc.file_unique_id
+    # Sanitize filename — strip path components to prevent traversal
+    raw_name = doc.file_name or doc.file_unique_id
+    name = Path(raw_name).name
     dest = _MEDIA_DIR / name
     await bot.download_file(file.file_path, str(dest))
     logger.info("Saved document to %s", dest)
@@ -78,8 +80,12 @@ async def save_document(bot: Bot, message: Message) -> Path | None:
 
 
 async def send_file_to_telegram(bot: Bot, chat_id: int, topic_id: int, file_path: str) -> bool:
-    path = Path(file_path).expanduser()
+    path = Path(file_path).expanduser().resolve()
+
+    # Block access to sensitive directories
     if not path.exists():
+        return False
+    if not _is_safe_file_path(path):
         return False
     if path.stat().st_size > 50 * 1024 * 1024:  # 50MB Telegram limit
         return False
@@ -92,4 +98,24 @@ async def send_file_to_telegram(bot: Bot, chat_id: int, topic_id: int, file_path
         document=input_file,
         message_thread_id=topic_id,
     )
+    return True
+
+
+def _is_safe_file_path(path: Path) -> bool:
+    """Block access to known sensitive paths."""
+    resolved = str(path.resolve())
+    blocked = [
+        str(Path.home() / ".ssh"),
+        str(Path.home() / ".gnupg"),
+        str(Path.home() / ".aws"),
+        str(Path.home() / ".config" / "gcloud"),
+        "/etc/shadow",
+        "/etc/master.passwd",
+    ]
+    for prefix in blocked:
+        if resolved.startswith(prefix):
+            return False
+    # Must be a regular file (not a device, socket, etc.)
+    if not path.is_file():
+        return False
     return True

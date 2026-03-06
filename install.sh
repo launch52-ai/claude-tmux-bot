@@ -50,11 +50,9 @@ echo ""
 echo "Installing Python dependencies..."
 pip3 install -r "$SCRIPT_DIR/requirements.txt"
 
-# --- Create data directories ---
-mkdir -p ~/.ctb/media
-mkdir -p ~/.ctb/logs
-mkdir -p ~/.ctb/hooks
-mkdir -p ~/.ctb/hook_events
+# --- Create data directories (owner-only permissions) ---
+mkdir -p ~/.ctb/media ~/.ctb/logs ~/.ctb/hooks ~/.ctb/hook_events
+chmod 700 ~/.ctb ~/.ctb/media ~/.ctb/logs ~/.ctb/hooks ~/.ctb/hook_events
 
 # --- Setup .env file ---
 echo ""
@@ -62,7 +60,8 @@ if [ -f "$ENV_FILE" ]; then
     echo ".env file already exists — skipping."
 else
     cp "$ENV_EXAMPLE" "$ENV_FILE"
-    echo "Created .env from .env.example"
+    chmod 600 "$ENV_FILE"
+    echo "Created .env from .env.example (permissions: owner-only)"
     echo ""
 
     # Prompt for required values

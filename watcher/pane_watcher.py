@@ -176,7 +176,7 @@ class PaneWatcher:
                             chat_id=self._chat_id,
                             message_id=msg_id,
                             text=text,
-                            parse_mode="Markdown",
+                            parse_mode="HTML",
                             reply_markup=markup,
                         )
                         flushed.append(pane_id)
@@ -188,7 +188,7 @@ class PaneWatcher:
                     chat_id=self._chat_id,
                     message_thread_id=topic_id,
                     text=text,
-                    parse_mode="Markdown",
+                    parse_mode="HTML",
                     reply_markup=markup,
                 )
                 self._output_msg_ids[pane_id] = msg.message_id

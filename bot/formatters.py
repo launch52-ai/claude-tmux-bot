@@ -27,7 +27,7 @@ def format_terminal_output(text: str, line_limit: int = 30) -> tuple[str, bool]:
     if len(output) > _MAX_MESSAGE_CHARS:
         output = output[-_MAX_MESSAGE_CHARS:]
         truncated = True
-    return f"```\n{output}\n```", truncated
+    return f"<pre>{_escape_html(output)}</pre>", truncated
 
 
 def format_tool_running(event: ToolUseEvent) -> str:
