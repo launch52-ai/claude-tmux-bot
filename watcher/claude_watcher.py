@@ -24,7 +24,8 @@ from claude.hooks import (
     parse_tool_result,
     parse_tool_use,
 )
-from claude.models import HookEvent, HookPayload
+from claude.models import HookEvent, HookPayload, TranscriptRole
+from claude.transcript import TranscriptReader, find_transcript_files
 
 if TYPE_CHECKING:
     from watcher.state import StateManager
@@ -44,6 +45,7 @@ class ClaudeWatcher:
         self._state = state
         self._hook_watcher = HookEventWatcher(self._on_hook_event)
         self._claude_active_panes: set[str] = set()
+        self._transcript_readers: dict[str, TranscriptReader] = {}
 
     async def start(self) -> None:
         logger.info("Claude watcher started")
@@ -79,12 +81,14 @@ class ClaudeWatcher:
             await self._handle_notification(payload, topic_id)
         elif payload.event == HookEvent.SESSION_START:
             self._claude_active_panes.add(pane_id)
+            self._init_transcript_reader(payload.session_id)
             await self._update_action_bar(topic_id, claude_active=True)
         elif payload.event == HookEvent.SESSION_END:
             self._claude_active_panes.discard(pane_id)
             await self._update_action_bar(topic_id, claude_active=False)
         elif payload.event == HookEvent.USER_PROMPT_SUBMIT:
             self._claude_active_panes.add(pane_id)
+            await self._send_typing_indicator(topic_id)
             await self._update_action_bar(topic_id, claude_active=True)
         elif payload.event == HookEvent.SUBAGENT_START:
             event = parse_subagent_event(payload)
@@ -164,6 +168,9 @@ class ClaudeWatcher:
     async def _handle_stop(
         self, payload: HookPayload, topic_id: int, pane_id: str
     ) -> None:
+        # Read transcript entries before sending stop message
+        await self._flush_transcript(payload.session_id, topic_id)
+
         event = parse_stop_event(payload)
         self._claude_active_panes.discard(pane_id)
         text = format_stop_event(event)
@@ -225,3 +232,50 @@ class ClaudeWatcher:
             reply_markup=kb,
         )
         self._state.set_action_bar_msg_id(topic_id, msg.message_id)
+
+    async def _send_typing_indicator(self, topic_id: int) -> None:
+        try:
+            await self._bot.send_chat_action(
+                chat_id=self._chat_id,
+                action="typing",
+                message_thread_id=topic_id,
+            )
+        except Exception:
+            logger.debug("Failed to send typing indicator")
+
+    def _init_transcript_reader(self, session_id: str) -> None:
+        if not session_id or session_id in self._transcript_readers:
+            return
+        files = find_transcript_files(session_id)
+        if files:
+            reader = TranscriptReader(files[0])
+            # Skip to end so we only get new content from this point
+            reader.read_new_entries()
+            self._transcript_readers[session_id] = reader
+            logger.debug("Initialized transcript reader for session %s: %s", session_id, files[0])
+
+    async def _flush_transcript(self, session_id: str, topic_id: int) -> None:
+        reader = self._transcript_readers.get(session_id)
+        if reader is None:
+            # Try to find transcript file lazily
+            self._init_transcript_reader(session_id)
+            reader = self._transcript_readers.get(session_id)
+            if reader is None:
+                return
+
+        entries = reader.read_new_entries()
+        for entry in entries:
+            if entry.role != TranscriptRole.ASSISTANT:
+                continue
+            messages = format_transcript_entry(entry)
+            for text in messages:
+                if not text.strip():
+                    continue
+                try:
+                    await self._bot.send_message(
+                        chat_id=self._chat_id,
+                        message_thread_id=topic_id,
+                        text=text,
+                    )
+                except Exception:
+                    logger.debug("Failed to send transcript message")

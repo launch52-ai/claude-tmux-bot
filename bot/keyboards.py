@@ -213,6 +213,36 @@ def directory_browser_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+# --- Switch pane button ---
+
+
+def switch_pane_button(pane_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Switch to this pane", callback_data=f"pane:{pane_id}")]
+        ]
+    )
+
+
+# --- History pagination ---
+
+_HISTORY_PAGE_SIZE = 5
+
+
+def history_keyboard(page: int, has_older: bool) -> InlineKeyboardMarkup:
+    nav_row = []
+    if page > 0:
+        nav_row.append(
+            InlineKeyboardButton(text="<< Newer", callback_data=f"history:{page - 1}")
+        )
+    if has_older:
+        nav_row.append(
+            InlineKeyboardButton(text="Older >>", callback_data=f"history:{page + 1}")
+        )
+    buttons = [nav_row] if nav_row else []
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 # --- Claude commands menu ---
 
 

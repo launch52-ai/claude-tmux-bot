@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
-from aiogram import Bot, Dispatcher, F, Router
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot import keyboards
-from bot.formatters import format_terminal_output, truncate_for_telegram
+from bot.formatters import format_terminal_output, format_transcript_entry, truncate_for_telegram
+from claude.transcript import TranscriptReader, find_transcript_files
 from bot.media import (
     save_document,
     save_photo,
@@ -29,12 +30,52 @@ control_router = Router(name="control")
 session_router = Router(name="session")
 
 
+class _TopicScopeMiddleware(BaseMiddleware):
+    def __init__(self, scope: str) -> None:
+        super().__init__()
+        self._scope = scope  # "control" or "session"
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        topics: TopicManager | None = data.get("topics")
+        if topics is None:
+            return await handler(event, data)
+
+        topic_id: int | None = None
+        if isinstance(event, Message):
+            topic_id = event.message_thread_id
+        elif isinstance(event, CallbackQuery) and event.message:
+            topic_id = event.message.message_thread_id
+
+        if topic_id is None:
+            return None
+
+        is_control = topics.is_control_topic(topic_id)
+
+        if self._scope == "control" and not is_control:
+            if isinstance(event, Message) and event.text and event.text.startswith("/"):
+                await event.reply("This command works in the Control topic.")
+            return None
+        if self._scope == "session" and is_control:
+            if isinstance(event, Message) and event.text and event.text.startswith("/"):
+                await event.reply("This command works in a session topic.")
+            return None
+
+        return await handler(event, data)
+
+
+control_router.message.middleware(_TopicScopeMiddleware("control"))
+control_router.callback_query.middleware(_TopicScopeMiddleware("control"))
+session_router.message.middleware(_TopicScopeMiddleware("session"))
+session_router.callback_query.middleware(_TopicScopeMiddleware("session"))
+
+
 def _get_topic_id(message: Message) -> int | None:
     return message.message_thread_id
-
-
-def _wrong_topic_reply(expected: str) -> str:
-    return f"This command works in a {expected} topic."
 
 
 # ═══════════════════════════════════════════
@@ -380,8 +421,34 @@ async def cmd_kill_pane(
 
 
 @session_router.message(Command("kill_window"))
-async def cmd_kill_window(message: Message, **_: Any) -> None:
-    await message.reply("Use with caution. Not yet fully implemented.")
+async def cmd_kill_window(
+    message: Message,
+    tmux: TmuxManager,
+    topics: TopicManager,
+    state: StateManager,
+    **_: Any,
+) -> None:
+    topic_id = _get_topic_id(message)
+    if topic_id is None:
+        return
+    target = topics.get_tmux_target(topic_id)
+    if not target:
+        await message.reply("No session associated.")
+        return
+    # In window mode, target is "session:window" — find the window
+    # In session mode, we need the focused pane's window
+    sessions = tmux.list_sessions()
+    pane_id = state.get_focused_pane(topic_id)
+    for session in sessions:
+        for window in session.windows:
+            for pane in window.panes:
+                if pane.pane_id == pane_id:
+                    if tmux.kill_window(window.window_id):
+                        await message.reply(f"Window '{window.window_name}' killed.")
+                    else:
+                        await message.reply("Failed to kill window.")
+                    return
+    await message.reply("Could not find window for focused pane.")
 
 
 @session_router.message(Command("kill_session"))
@@ -405,9 +472,21 @@ async def cmd_kill_session(
         await message.reply("Failed to kill session.")
 
 
+_HISTORY_PAGE_SIZE = 5
+
+
 @session_router.message(Command("history"))
-async def cmd_history(message: Message, **_: Any) -> None:
-    await message.reply("Message history browsing not yet implemented.")
+async def cmd_history(
+    message: Message,
+    state: StateManager,
+    **_: Any,
+) -> None:
+    topic_id = _get_topic_id(message)
+    if topic_id is None:
+        return
+
+    text, kb = _render_history_page(state, topic_id, page=0)
+    await message.reply(text, reply_markup=kb)
 
 
 @session_router.message(Command("file"))
@@ -786,6 +865,28 @@ async def handle_claude_cmd_callback(
     await callback.answer(f"Sent {cmd}")
 
 
+@session_router.callback_query(F.data.startswith("history:"))
+async def handle_history_callback(
+    callback: CallbackQuery,
+    state: StateManager,
+    **_: Any,
+) -> None:
+    topic_id = callback.message.message_thread_id if callback.message else None
+    if topic_id is None:
+        await callback.answer()
+        return
+
+    page = int((callback.data or "history:0").split(":")[1])
+    text, kb = _render_history_page(state, topic_id, page)
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        await callback.answer("Failed to update.")
+        return
+    await callback.answer()
+
+
 @control_router.callback_query(F.data.startswith("dir:"))
 async def handle_dir_browse(
     callback: CallbackQuery,
@@ -973,6 +1074,60 @@ async def handle_nav_sessions(
             reply_markup=keyboards.sessions_keyboard(items),
         )
     await callback.answer()
+
+
+def _render_history_page(
+    state: StateManager,
+    topic_id: int,
+    page: int,
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    from claude.models import TranscriptRole
+
+    topic_state = state.get_topic_state(topic_id)
+    if topic_state is None:
+        return "No session associated with this topic.", None
+
+    # Find the most recent transcript for this topic's target
+    files = find_transcript_files()
+    if not files:
+        return "No transcript files found.", None
+
+    # Read all entries from the most recent file
+    reader = TranscriptReader(files[0])
+    all_entries = reader.read_new_entries()
+
+    # Filter to assistant entries only
+    assistant_entries = [e for e in all_entries if e.role == TranscriptRole.ASSISTANT]
+    assistant_entries.reverse()  # newest first
+
+    if not assistant_entries:
+        return "No history entries found.", None
+
+    start = page * _HISTORY_PAGE_SIZE
+    end = start + _HISTORY_PAGE_SIZE
+    page_entries = assistant_entries[start:end]
+
+    if not page_entries:
+        return "No more entries.", None
+
+    lines: list[str] = []
+    for entry in page_entries:
+        parts = format_transcript_entry(entry)
+        ts = entry.timestamp[:19] if entry.timestamp else ""
+        header = f"[{ts}]" if ts else ""
+        for part in parts:
+            text = truncate_for_telegram(part)
+            if header:
+                lines.append(f"{header}\n{text}")
+                header = ""
+            else:
+                lines.append(text)
+
+    body = "\n\n---\n\n".join(lines) if lines else "No content."
+    has_older = end < len(assistant_entries)
+    kb = keyboards.history_keyboard(page, has_older)
+
+    return body, kb
 
 
 def _translate_key(combo: str) -> str:

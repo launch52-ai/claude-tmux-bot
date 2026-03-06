@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from aiogram import Bot
@@ -33,15 +34,25 @@ class SessionWatcher:
         self._running = False
         self._known_sessions: set[str] = set()
         self._known_windows: set[str] = set()
+        self._last_poll_time: float = 0.0
+        self._wake_threshold: float = poll_interval * 6  # 30s for 5s interval
 
     async def start(self) -> None:
         self._running = True
+        self._last_poll_time = time.monotonic()
         # Initial snapshot
         self._refresh_known()
         logger.info("Session watcher started")
 
         while self._running:
             try:
+                now = time.monotonic()
+                gap = now - self._last_poll_time
+                self._last_poll_time = now
+
+                if gap > self._wake_threshold:
+                    await self._handle_wake(gap)
+
                 await self._poll()
             except Exception:
                 logger.exception("Session watcher error")
@@ -134,3 +145,25 @@ class SessionWatcher:
 
         self._known_sessions = current_sessions
         self._known_windows = current_windows
+
+    async def _handle_wake(self, gap: float) -> None:
+        minutes = int(gap / 60)
+        logger.info("Detected wake from sleep (gap: %ds)", int(gap))
+
+        # Re-discover sessions from scratch
+        self._refresh_known()
+
+        # Full re-sync
+        if self._tmux.is_available():
+            sessions = self._tmux.list_sessions()
+            await self._topics.sync_sessions(sessions)
+
+        # Notify control topic
+        control_id = self._topics.control_topic_id
+        if control_id:
+            duration = f"{minutes}m" if minutes > 0 else f"{int(gap)}s"
+            await self._bot.send_message(
+                chat_id=self._chat_id,
+                message_thread_id=control_id,
+                text=f"Resumed after ~{duration} sleep. Sessions re-synced.",
+            )

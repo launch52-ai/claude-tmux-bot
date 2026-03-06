@@ -128,13 +128,24 @@ class PaneWatcher:
             await self._send_prompt(pane_id, topic_id, prompt)
             return
 
-        # Send compact activity notification
-        # Get window/pane info for the notification
+        # Get pane index for display
+        pane_index = 0
+        try:
+            pane_index = int(pane_id.replace("%", ""))
+        except ValueError:
+            pass
+
+        window_name = "unknown"
+        pane = self._tmux._get_pane(pane_id)
+        if pane and pane.window:
+            window_name = pane.window.name or "unknown"
+
+        text = format_activity_notification(window_name, pane_index)
         await self._bot.send_message(
             chat_id=self._chat_id,
             message_thread_id=topic_id,
-            text=f"Activity in pane {pane_id}",
-            reply_markup=keyboards.screenshot_button(),
+            text=text,
+            reply_markup=keyboards.switch_pane_button(pane_id),
         )
 
     async def _flush_pending_output(self) -> None:
@@ -190,6 +201,14 @@ class PaneWatcher:
             self._pending_output.pop(pane_id, None)
 
     async def _send_prompt(self, pane_id: str, topic_id: int, prompt: object) -> None:
+        is_focused = self._state.get_focused_pane(topic_id) == pane_id
+
+        # Track pending prompt in state
+        prompt_type = type(prompt).__name__
+        ps = self._state.find_pane_state(pane_id)
+        if ps is not None:
+            ps.pending_prompt = prompt_type
+
         if isinstance(prompt, PermissionPrompt):
             text = prompt.description or "Permission requested"
             markup = keyboards.permission_keyboard()
@@ -213,6 +232,20 @@ class PaneWatcher:
             markup = keyboards.yes_no_keyboard()
         else:
             return
+
+        # Prefix background prompts with source info
+        if not is_focused:
+            pane = self._tmux._get_pane(pane_id)
+            window_name = "unknown"
+            pane_index = 0
+            if pane:
+                if pane.window:
+                    window_name = pane.window.name or "unknown"
+                try:
+                    pane_index = int(pane_id.replace("%", ""))
+                except ValueError:
+                    pass
+            text = format_prompt_source(window_name, pane_index, text)
 
         await self._bot.send_message(
             chat_id=self._chat_id,

@@ -20,6 +20,7 @@ class PaneState:
     is_focused: bool = False
     is_claude: bool = False
     transcript_offset: int = 0
+    pending_prompt: str = ""
     tool_msg_ids: dict[str, int] = field(default_factory=dict)
 
 
@@ -241,6 +242,13 @@ class StateManager:
         logger.info("Caffeinate stopped")
 
     # -- Pane iteration --
+
+    def find_pane_state(self, pane_id: str) -> PaneState | None:
+        for ts in self._bot_state.topics.values():
+            ps = ts.panes.get(pane_id)
+            if ps is not None:
+                return ps
+        return None
 
     def all_pane_ids(self) -> list[str]:
         result: list[str] = []
