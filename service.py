@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_LABEL = "com.ctb"
-_PLIST_TEMPLATE = Path(__file__).parent / "com.ctb.plist"
+_LABEL = "com.claude-tmux-bot"
+_PLIST_TEMPLATE = Path(__file__).parent / "com.claude-tmux-bot.plist"
 _LAUNCH_AGENTS_DIR = Path.home() / "Library" / "LaunchAgents"
 _INSTALLED_PLIST = _LAUNCH_AGENTS_DIR / f"{_LABEL}.plist"
 _LOGS_DIR = Path.home() / ".ctb" / "logs"
@@ -16,13 +15,13 @@ _LOGS_DIR = Path.home() / ".ctb" / "logs"
 
 def install() -> str:
     if not _PLIST_TEMPLATE.exists():
-        return "Error: com.ctb.plist template not found."
+        return "Error: com.claude-tmux-bot.plist template not found."
 
     _LAUNCH_AGENTS_DIR.mkdir(parents=True, exist_ok=True)
     _LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
     content = _PLIST_TEMPLATE.read_text()
-    content = content.replace("__CTB_MAIN_PY__", str(Path(__file__).parent / "main.py"))
+    content = content.replace("__CTB_LAUNCHER__", str(Path(__file__).parent / "claude-tmux-bot"))
     content = content.replace("__CTB_WORKING_DIR__", str(Path(__file__).parent))
     content = content.replace("__CTB_HOME__", str(Path.home()))
 

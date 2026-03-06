@@ -13,7 +13,7 @@ echo ""
 #  1. Uninstall launchd service
 # =============================================
 
-PLIST="$HOME/Library/LaunchAgents/com.ctb.plist"
+PLIST="$HOME/Library/LaunchAgents/com.claude-tmux-bot.plist"
 if [ -f "$PLIST" ]; then
     echo "  Stopping and removing launchd service..."
     launchctl unload "$PLIST" 2>/dev/null || true

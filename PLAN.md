@@ -22,7 +22,7 @@ claude-tmux-bot/
 ├── config.py                  # Settings (env vars with CTB_ prefix)
 ├── requirements.txt           # aiogram, libtmux, pydantic-settings, rich, cairosvg, openai
 ├── install.sh                 # Install script (brew install cairo + pip install -r requirements.txt)
-├── com.ctb.plist              # launchd service definition for macOS
+├── com.claude-tmux-bot.plist              # launchd service definition for macOS
 ├── bot/
 │   ├── handlers.py            # Command & callback handlers
 │   ├── keyboards.py           # Inline keyboard builders (nav, prompts, action bar)
@@ -334,7 +334,7 @@ Controllable from Telegram — never need to touch the Mac.
 
 Install as a macOS service for persistent operation:
 
-- `/service install` — installs `com.ctb.plist` to `~/Library/LaunchAgents/`
+- `/service install` — installs `com.claude-tmux-bot.plist` to `~/Library/LaunchAgents/`
 - `/service uninstall` — removes the service
 - `/service status` — check if service is running
 - **KeepAlive**: auto-restarts if bot crashes
@@ -443,7 +443,7 @@ If a command is sent in the wrong topic, the bot replies with a brief redirect:
 23. `main.py` — Wire bot + watchers + tmux + hooks, startup sync, graceful shutdown
 
 ### Phase 6: Service & Polish
-24. `com.ctb.plist` — launchd service definition
+24. `com.claude-tmux-bot.plist` — launchd service definition
 25. Service install/uninstall/status commands
 26. Error handling (session dies mid-watch, Telegram rate limits, tmux server not running)
 27. Graceful shutdown (cancel watchers, save state, kill caffeinate)

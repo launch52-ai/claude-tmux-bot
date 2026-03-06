@@ -156,7 +156,7 @@ Non-Claude panes fall back to terminal capture with ANSI stripping and regex-bas
 ├── main.py              # Entry point — wires bot + watchers + tmux
 ├── config.py            # Settings (env vars / .env with CTB_ prefix)
 ├── service.py           # macOS launchd service management
-├── com.ctb.plist        # launchd plist template
+├── com.claude-tmux-bot.plist        # launchd plist template
 ├── bot/
 │   ├── handlers.py      # Command & callback handlers
 │   ├── keyboards.py     # Inline keyboard builders

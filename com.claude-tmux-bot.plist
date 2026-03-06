@@ -3,12 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.ctb</string>
+    <string>com.claude-tmux-bot</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/env</string>
-        <string>python3</string>
-        <string>__CTB_MAIN_PY__</string>
+        <string>__CTB_LAUNCHER__</string>
     </array>
     <key>WorkingDirectory</key>
     <string>__CTB_WORKING_DIR__</string>
