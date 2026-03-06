@@ -77,33 +77,69 @@ def _update_claude_settings() -> None:
     hooks = settings.setdefault("hooks", {})
     script = str(_HOOK_SCRIPT)
 
-    hook_configs: dict[str, dict] = {
-        HookEvent.PRE_TOOL_USE.value: {"type": "command", "command": f"{script} PreToolUse"},
-        HookEvent.POST_TOOL_USE.value: {"type": "command", "command": f"{script} PostToolUse"},
-        HookEvent.POST_TOOL_USE_FAILURE.value: {"type": "command", "command": f"{script} PostToolUseFailure"},
-        HookEvent.STOP.value: {"type": "command", "command": f"{script} Stop"},
-        HookEvent.NOTIFICATION.value: {"type": "command", "command": f"{script} Notification"},
-        HookEvent.USER_PROMPT_SUBMIT.value: {"type": "command", "command": f"{script} UserPromptSubmit"},
-        HookEvent.SESSION_START.value: {"type": "command", "command": f"{script} SessionStart"},
-        HookEvent.SESSION_END.value: {"type": "command", "command": f"{script} SessionEnd"},
-        HookEvent.SUBAGENT_START.value: {"type": "command", "command": f"{script} SubagentStart"},
-        HookEvent.SUBAGENT_STOP.value: {"type": "command", "command": f"{script} SubagentStop"},
-    }
+    # New hooks format: each event is an array of {matcher, hooks} objects
+    # matcher: {} means match all (no filtering)
+    # hooks: array of hook commands
+    event_names = [
+        HookEvent.PRE_TOOL_USE.value,
+        HookEvent.POST_TOOL_USE.value,
+        HookEvent.POST_TOOL_USE_FAILURE.value,
+        HookEvent.STOP.value,
+        HookEvent.NOTIFICATION.value,
+        HookEvent.USER_PROMPT_SUBMIT.value,
+        HookEvent.SESSION_START.value,
+        HookEvent.SESSION_END.value,
+        HookEvent.SUBAGENT_START.value,
+        HookEvent.SUBAGENT_STOP.value,
+    ]
 
-    for event_name, config in hook_configs.items():
+    for event_name in event_names:
+        hook_command = {"type": "command", "command": f"{script} {event_name}"}
         existing = hooks.get(event_name, [])
         if not isinstance(existing, list):
             existing = [existing]
 
-        # Check if our hook is already installed
-        already_installed = any(
-            isinstance(h, dict)
-            and h.get("command", "").startswith(script)
-            for h in existing
-        )
+        # Migrate old-format CTB entries and check if already installed
+        already_installed = False
+        migrated: list[dict] = []
+        for entry in existing:
+            if not isinstance(entry, dict):
+                migrated.append(entry)
+                continue
+
+            entry_hooks = entry.get("hooks")
+            if isinstance(entry_hooks, list):
+                # Already new format
+                if any(
+                    isinstance(h, dict) and h.get("command", "").startswith(script)
+                    for h in entry_hooks
+                ):
+                    already_installed = True
+                migrated.append(entry)
+            elif entry.get("command", "").startswith(script):
+                # Old-format CTB entry — migrate to new format
+                migrated.append({
+                    "matcher": {},
+                    "hooks": [{"type": entry.get("type", "command"), "command": entry["command"]}],
+                })
+                already_installed = True
+            else:
+                # Old-format entry from another tool — migrate it too
+                if "command" in entry:
+                    migrated.append({
+                        "matcher": {},
+                        "hooks": [entry],
+                    })
+                else:
+                    migrated.append(entry)
+
         if not already_installed:
-            existing.append(config)
-            hooks[event_name] = existing
+            migrated.append({
+                "matcher": {},
+                "hooks": [hook_command],
+            })
+
+        hooks[event_name] = migrated
 
     settings["hooks"] = hooks
     _CLAUDE_SETTINGS.parent.mkdir(parents=True, exist_ok=True)
@@ -124,13 +160,34 @@ def uninstall_hooks() -> None:
 
     for event_name in list(hooks.keys()):
         entries = hooks[event_name]
-        if isinstance(entries, list):
-            hooks[event_name] = [
-                h for h in entries
-                if not (isinstance(h, dict) and h.get("command", "").startswith(script))
-            ]
-            if not hooks[event_name]:
-                del hooks[event_name]
+        if not isinstance(entries, list):
+            continue
+
+        cleaned = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                cleaned.append(entry)
+                continue
+
+            # New format: {matcher, hooks: [...]}
+            entry_hooks = entry.get("hooks")
+            if isinstance(entry_hooks, list):
+                filtered = [
+                    h for h in entry_hooks
+                    if not (isinstance(h, dict) and h.get("command", "").startswith(script))
+                ]
+                if filtered:
+                    entry["hooks"] = filtered
+                    cleaned.append(entry)
+                # If no hooks left, drop the entire entry
+            # Old format: direct {type, command}
+            elif not entry.get("command", "").startswith(script):
+                cleaned.append(entry)
+
+        if cleaned:
+            hooks[event_name] = cleaned
+        else:
+            del hooks[event_name]
 
     settings["hooks"] = hooks
     _CLAUDE_SETTINGS.write_text(json.dumps(settings, indent=2) + "\n")
