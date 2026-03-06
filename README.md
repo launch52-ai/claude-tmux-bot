@@ -73,6 +73,7 @@ All configuration is via environment variables (with `CTB_` prefix) or a `.env` 
 | `CTB_CHAT_ID` | Forum supergroup chat ID | required |
 | `CTB_ALLOWED_USER_ID` | Your Telegram user ID | required |
 | `CTB_TOPIC_MODE` | `session` or `window` | `session` |
+| `CTB_TOPIC_CLEANUP` | `close` or `delete` stale topics | `close` |
 | `CTB_POLL_INTERVAL_ACTIVE` | Poll interval when active (seconds) | `0.5` |
 | `CTB_POLL_INTERVAL_IDLE` | Poll interval when idle (seconds) | `2.0` |
 | `CTB_OUTPUT_DEBOUNCE` | Debounce window for streaming (seconds) | `1.5` |
@@ -85,9 +86,11 @@ All configuration is via environment variables (with `CTB_` prefix) or a `.env` 
 
 ## Topic Modes
 
-**Session mode** (default): One forum topic per tmux session. Navigate windows/panes within the topic.
+**Session mode** (default): One forum topic per tmux session. Topic names follow the format `{sess_idx}-{sess_name}`. Navigate windows/panes within the topic.
 
 **Window mode**: One forum topic per tmux window. Topic names follow the format `{sess_idx}-{sess_name}-{win_idx}-{win_name}`. Switch modes at runtime with `/topic_mode`.
+
+Stale topics (from killed sessions/windows) are closed by default. Set `CTB_TOPIC_CLEANUP=delete` to permanently delete them instead.
 
 ## Commands
 
