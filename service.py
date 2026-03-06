@@ -1,16 +1,54 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 _LABEL = "com.claude-tmux-bot"
-_PLIST_TEMPLATE = Path(__file__).parent / "com.claude-tmux-bot.plist"
+_SRC_DIR = Path(__file__).parent
+_PLIST_TEMPLATE = _SRC_DIR / "com.claude-tmux-bot.plist"
+_APP_DIR = Path.home() / ".ctb" / "app"
 _LAUNCH_AGENTS_DIR = Path.home() / "Library" / "LaunchAgents"
 _INSTALLED_PLIST = _LAUNCH_AGENTS_DIR / f"{_LABEL}.plist"
 _LOGS_DIR = Path.home() / ".ctb" / "logs"
+
+# Directories and files to copy for runtime
+_COPY_DIRS = ["bot", "claude", "parser", "tmux", "watcher"]
+_COPY_FILES = [
+    "main.py", "config.py", "service.py", "claude-tmux-bot",
+    "com.claude-tmux-bot.plist", "requirements.txt",
+]
+
+
+def _deploy_to_app_dir() -> None:
+    """Copy runtime files to ~/.ctb/app/ so launchd can access them."""
+    _APP_DIR.mkdir(parents=True, exist_ok=True)
+
+    for dirname in _COPY_DIRS:
+        src = _SRC_DIR / dirname
+        dst = _APP_DIR / dirname
+        if src.is_dir():
+            if dst.exists():
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__"))
+
+    for filename in _COPY_FILES:
+        src = _SRC_DIR / filename
+        if src.exists():
+            shutil.copy2(src, _APP_DIR / filename)
+
+    # Copy .env so pydantic-settings can read it from CWD
+    env_src = _SRC_DIR / ".env"
+    if env_src.exists():
+        shutil.copy2(env_src, _APP_DIR / ".env")
+
+    # Ensure launcher is executable
+    launcher = _APP_DIR / "claude-tmux-bot"
+    if launcher.exists():
+        launcher.chmod(0o755)
 
 
 def install() -> str:
@@ -20,9 +58,12 @@ def install() -> str:
     _LAUNCH_AGENTS_DIR.mkdir(parents=True, exist_ok=True)
     _LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Deploy files to ~/.ctb/app/
+    _deploy_to_app_dir()
+
     content = _PLIST_TEMPLATE.read_text()
-    content = content.replace("__CTB_LAUNCHER__", str(Path(__file__).parent / "claude-tmux-bot"))
-    content = content.replace("__CTB_WORKING_DIR__", str(Path(__file__).parent))
+    content = content.replace("__CTB_LAUNCHER__", str(_APP_DIR / "claude-tmux-bot"))
+    content = content.replace("__CTB_WORKING_DIR__", str(_APP_DIR))
     content = content.replace("__CTB_HOME__", str(Path.home()))
 
     _INSTALLED_PLIST.write_text(content)
@@ -49,6 +90,10 @@ def uninstall() -> str:
         text=True,
     )
     _INSTALLED_PLIST.unlink(missing_ok=True)
+
+    # Clean up deployed app files
+    if _APP_DIR.exists():
+        shutil.rmtree(_APP_DIR)
 
     if result.returncode != 0:
         return f"Warning: {result.stderr.strip()} (plist removed anyway)"
