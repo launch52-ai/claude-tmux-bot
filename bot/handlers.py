@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message, TelegramObject
-
-import time
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, TelegramObject
 
 from bot import keyboards
 from bot.formatters import format_terminal_output, format_transcript_entry, truncate_for_telegram
 from claude.transcript import TranscriptReader, find_transcript_files
 
 _START_TIME = time.monotonic()
+
 from bot.media import (
     save_document,
     save_photo,
@@ -80,6 +80,13 @@ session_router.callback_query.middleware(_TopicScopeMiddleware("session"))
 
 def _get_topic_id(message: Message) -> int | None:
     return message.message_thread_id
+
+
+def _cb_value(callback: CallbackQuery) -> str:
+    """Extract the value after the first ':' in callback data, safely."""
+    data = callback.data or ""
+    parts = data.split(":", 1)
+    return parts[1] if len(parts) > 1 else ""
 
 
 # ═══════════════════════════════════════════
@@ -676,7 +683,7 @@ async def handle_prompt_callback(
         await callback.answer("No pane focused.")
         return
 
-    action = (callback.data or "").split(":", 1)[1]
+    action = _cb_value(callback)
 
     key_map = {
         "yes": "y",
@@ -712,13 +719,17 @@ async def handle_choice_callback(
         await callback.answer("No pane focused.")
         return
 
-    choice = (callback.data or "").split(":", 1)[1]
+    choice = _cb_value(callback)
     if choice == "custom":
         await callback.answer("Send your reply as a text message.")
         return
 
     # Send the 1-indexed choice number
-    num = str(int(choice) + 1)
+    try:
+        num = str(int(choice) + 1)
+    except ValueError:
+        await callback.answer("Invalid choice.")
+        return
     tmux.send_keys(pane_id, num, enter=True)
     await callback.answer(f"Selected option {num}")
     if callback.message:
@@ -745,11 +756,15 @@ async def handle_plan_callback(
         await callback.answer("No pane focused.")
         return
 
-    choice = (callback.data or "").split(":", 1)[1]
+    choice = _cb_value(callback)
     if choice == "cancel":
         tmux.send_keys(pane_id, "Escape", enter=False)
     else:
-        num = str(int(choice) + 1)
+        try:
+            num = str(int(choice) + 1)
+        except ValueError:
+            await callback.answer("Invalid choice.")
+            return
         tmux.send_keys(pane_id, num, enter=True)
 
     await callback.answer()
@@ -777,7 +792,7 @@ async def handle_yes_no_callback(
         await callback.answer("No pane focused.")
         return
 
-    answer = (callback.data or "").split(":", 1)[1]
+    answer = _cb_value(callback)
     tmux.send_keys(pane_id, answer[0], enter=True)  # 'y' or 'n'
     await callback.answer()
 
@@ -799,7 +814,7 @@ async def handle_checkpoint_callback(
         await callback.answer("No pane focused.")
         return
 
-    action = (callback.data or "").split(":", 1)[1]
+    action = _cb_value(callback)
     action_map = {"code": "1", "conv": "2", "both": "3", "cancel": "Escape"}
     key = action_map.get(action, "Escape")
     if key == "Escape":
@@ -834,7 +849,7 @@ async def handle_action_callback(
         await callback.answer("No pane focused.")
         return
 
-    action = (callback.data or "").split(":", 1)[1]
+    action = _cb_value(callback)
 
     if action == "stop":
         tmux.send_special_key(pane_id, "Escape")
@@ -877,7 +892,7 @@ async def handle_claude_cmd_callback(
         await callback.answer("No pane focused.")
         return
 
-    cmd = (callback.data or "").split(":", 1)[1]
+    cmd = _cb_value(callback)
     allowed_cmds = {
         "/compact", "/clear", "/cost", "/model", "/memory",
         "/rewind", "/settings", "/help", "/doctor",
@@ -900,7 +915,7 @@ async def handle_history_callback(
         await callback.answer()
         return
 
-    page = int((callback.data or "history:0").split(":")[1])
+    page = int(_cb_value(callback) or "0")
     text, kb = _render_history_page(state, topic_id, page)
 
     try:
@@ -917,7 +932,7 @@ async def handle_dir_browse(
     settings: Settings,
     **_: Any,
 ) -> None:
-    path = Path((callback.data or "").split(":", 1)[1]).resolve()
+    path = Path(_cb_value(callback)).resolve()
     if not _is_safe_browse_path(path, settings.projects_dir):
         await callback.answer("Path not allowed.")
         return
@@ -939,7 +954,7 @@ async def handle_dir_up(
     settings: Settings,
     **_: Any,
 ) -> None:
-    path = Path((callback.data or "").split(":", 1)[1]).resolve()
+    path = Path(_cb_value(callback)).resolve()
     if not _is_safe_browse_path(path, settings.projects_dir):
         await callback.answer("Path not allowed.")
         return
@@ -963,7 +978,7 @@ async def handle_dir_select(
     settings: Settings,
     **_: Any,
 ) -> None:
-    path_str = (callback.data or "").split(":", 1)[1]
+    path_str = _cb_value(callback)
     path = Path(path_str).resolve()
 
     if not _is_safe_browse_path(path, settings.projects_dir):
@@ -982,7 +997,7 @@ async def handle_dir_select(
 
 @control_router.callback_query(F.data.startswith("dir_page:"))
 async def handle_dir_page(callback: CallbackQuery, settings: Settings, **_: Any) -> None:
-    page = int((callback.data or "").split(":", 1)[1])
+    page = int(_cb_value(callback) or "0")
     root = settings.projects_dir
     dirs = sorted([d for d in root.iterdir() if d.is_dir()])
     if callback.message:
@@ -1009,7 +1024,7 @@ async def handle_multi_callback(
         await callback.answer("No pane focused.")
         return
 
-    action = (callback.data or "").split(":", 1)[1]
+    action = _cb_value(callback)
 
     if action == "submit":
         tmux.send_keys(pane_id, "", enter=True)
@@ -1022,9 +1037,12 @@ async def handle_multi_callback(
     elif action == "custom":
         await callback.answer("Send your input as a text message.")
     else:
-        # Toggle checkbox — send space to toggle, then arrow to move
-        idx = int(action)
-        # Navigate to the item and toggle
+        # Toggle checkbox — send space to toggle
+        try:
+            idx = int(action)
+        except ValueError:
+            await callback.answer("Invalid option.")
+            return
         tmux.send_keys(pane_id, " ", enter=False)
         await callback.answer(f"Toggled option {idx + 1}")
 
@@ -1041,7 +1059,7 @@ async def handle_session_nav(
     **_: Any,
 ) -> None:
     sessions = tmux.list_sessions()
-    sess_id = (callback.data or "").split(":", 1)[1]
+    sess_id = _cb_value(callback)
 
     for session in sessions:
         if session.session_id == sess_id:
@@ -1064,7 +1082,7 @@ async def handle_window_nav(
     tmux: TmuxManager,
     **_: Any,
 ) -> None:
-    win_id = (callback.data or "").split(":", 1)[1]
+    win_id = _cb_value(callback)
     sessions = tmux.list_sessions()
 
     for session in sessions:
@@ -1095,7 +1113,7 @@ async def handle_pane_focus(
         await callback.answer()
         return
 
-    pane_id = (callback.data or "").split(":", 1)[1]
+    pane_id = _cb_value(callback)
     state.set_focused_pane(topic_id, pane_id)
     await callback.answer(f"Focused on pane {pane_id}")
 

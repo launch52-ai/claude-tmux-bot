@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from claude.models import (
     CostSummary,
     StopEvent,
@@ -138,4 +140,4 @@ def truncate_for_telegram(text: str) -> str:
 
 
 def _escape_html(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return html.escape(text, quote=False)
