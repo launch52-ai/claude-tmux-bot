@@ -9,8 +9,8 @@ class Settings(BaseSettings):
 
     # Required
     bot_token: str
-    chat_id: int
-    allowed_user_id: int
+    chat_id: Optional[int] = None  # None triggers setup mode
+    allowed_user_id: Optional[int] = None  # None allows any user during setup
 
     # Topic mode
     topic_mode: str = "session"  # "session" or "window"

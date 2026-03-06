@@ -64,23 +64,15 @@ else
     echo "Created .env from .env.example (permissions: owner-only)"
     echo ""
 
-    # Prompt for required values
+    # Only need the bot token — chat ID and user ID are auto-detected
     read -rp "Telegram bot token (from @BotFather): " BOT_TOKEN
-    read -rp "Forum supergroup chat ID (negative number): " CHAT_ID
-    read -rp "Your Telegram user ID: " USER_ID
 
     if [ -n "$BOT_TOKEN" ]; then
         sed -i '' "s|CTB_BOT_TOKEN=.*|CTB_BOT_TOKEN=$BOT_TOKEN|" "$ENV_FILE"
     fi
-    if [ -n "$CHAT_ID" ]; then
-        sed -i '' "s|CTB_CHAT_ID=.*|CTB_CHAT_ID=$CHAT_ID|" "$ENV_FILE"
-    fi
-    if [ -n "$USER_ID" ]; then
-        sed -i '' "s|CTB_ALLOWED_USER_ID=.*|CTB_ALLOWED_USER_ID=$USER_ID|" "$ENV_FILE"
-    fi
 
     echo ""
-    echo "Saved to .env — edit it later if needed: $ENV_FILE"
+    echo "Saved to .env"
 fi
 
 # --- Done ---
@@ -88,12 +80,13 @@ echo ""
 echo "=== Install complete ==="
 echo ""
 echo "Next steps:"
+echo ""
+echo "  1. Create a Telegram supergroup with Topics enabled"
+echo "  2. Add your bot as admin (with 'Manage Topics' permission)"
+echo "  3. Run: python3 main.py"
+echo "     The bot will enter setup mode — just send a message in your group"
+echo "     and it will auto-detect the chat ID and your user ID."
+echo ""
 if ! command -v tmux &>/dev/null; then
-    echo "  1. Install tmux: brew install tmux"
-    echo "  2. Start a tmux session: tmux new-session -d -s main"
-    echo "  3. Run the bot: python3 main.py"
-else
-    echo "  1. Start a tmux session (if none running): tmux new-session -d -s main"
-    echo "  2. Run the bot: python3 main.py"
+    echo "  Also: install tmux (brew install tmux) before normal operation."
 fi
-echo "  Optional: install as a service from Telegram with /service install"

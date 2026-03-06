@@ -34,31 +34,28 @@ The bot maps Telegram forum topics to tmux sessions (or windows) and uses inline
 ### Prerequisites
 
 1. **Python 3.9+** and **tmux** installed
-2. A **Telegram supergroup** with forum topics enabled
-3. A Telegram **bot** added as admin with `can_manage_topics` permission
-4. Your **Telegram user ID** (message [@userinfobot](https://t.me/userinfobot) to get it)
+2. A **Telegram bot** created via [@BotFather](https://t.me/BotFather)
+3. A **Telegram supergroup** with forum topics enabled, bot added as admin with `can_manage_topics`
 
 ### Setup
 
 ```bash
-# Clone the repo
+# Clone and install
 git clone https://github.com/launch52-ai/claude-tmux-bot.git
 cd claude-tmux-bot
+chmod +x install.sh && ./install.sh   # prompts for bot token only
 
-# Install everything — deps, directories, .env config
-chmod +x install.sh && ./install.sh
-# The script will prompt for your bot token, chat ID, and user ID
+# First run — auto-detects chat ID and user ID
+python3 main.py
+# Bot enters setup mode: send any message in your group
+# It replies with the IDs and saves them to .env automatically
 
-# Make sure tmux is running
-tmux new-session -d -s main
-
-# Run
+# Second run — normal operation
+tmux new-session -d -s main   # if no tmux sessions exist yet
 python3 main.py
 ```
 
-The install script handles: Python version check, tmux check, cairo + pip dependencies, data directories, and interactive `.env` setup.
-
-The bot will create a **Control** topic and topics for each existing tmux session automatically.
+The bot auto-detects your supergroup chat ID and Telegram user ID — no need to look them up manually.
 
 ### Install as a service (optional)
 
