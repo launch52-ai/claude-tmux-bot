@@ -75,10 +75,48 @@ if [ -n "$EXISTING_CHAT_ID" ] && [ "$EXISTING_CHAT_ID" != "" ] && [ "$EXISTING_C
     echo ""
     echo "  ✓ Already configured (chat ID: $EXISTING_CHAT_ID)"
     echo ""
-    echo "  Run the bot:  python3 main.py"
-    echo "  To reconfigure: delete .env and re-run this script."
+    echo "  What would you like to do?"
     echo ""
-    exit 0
+    echo "    1) Restart the service (redeploy and restart)"
+    echo "    2) Start the bot manually"
+    echo "    3) Reconfigure (delete .env and start over)"
+    echo "    4) Exit"
+    echo ""
+    read -rp "  Choose [1/2/3/4]: " RECONFIG_CHOICE
+    case "$RECONFIG_CHOICE" in
+        1)
+            echo ""
+            echo "  Redeploying and restarting service..."
+            launchctl unload "$HOME/Library/LaunchAgents/com.claude-tmux-bot.plist" 2>/dev/null || true
+            cd "$SCRIPT_DIR"
+            SERVICE_RESULT=$(python3 -c "import service; print(service.install())" 2>&1)
+            if echo "$SERVICE_RESULT" | grep -q "^Error"; then
+                echo "  ⚠ $SERVICE_RESULT"
+            else
+                echo "  ✓ $SERVICE_RESULT"
+            fi
+            echo ""
+            exit 0
+            ;;
+        2)
+            echo ""
+            echo "  Starting the bot..."
+            echo ""
+            exec python3 "$SCRIPT_DIR/main.py"
+            ;;
+        3)
+            rm -f "$ENV_FILE"
+            cp "$ENV_EXAMPLE" "$ENV_FILE"
+            chmod 600 "$ENV_FILE"
+            echo ""
+            echo "  .env reset. Continuing with setup..."
+            echo ""
+            ;;
+        *)
+            echo ""
+            exit 0
+            ;;
+    esac
 fi
 
 # =============================================
