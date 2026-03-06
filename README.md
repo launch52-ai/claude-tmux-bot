@@ -105,4 +105,4 @@ The bot uses a **focused pane model** — each topic has one active pane receivi
 
 ## License
 
-MIT
+Apache 2.0 — see [LICENSE](LICENSE) for details.
