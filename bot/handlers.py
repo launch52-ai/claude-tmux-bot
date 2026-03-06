@@ -8,9 +8,13 @@ from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+import time
+
 from bot import keyboards
 from bot.formatters import format_terminal_output, format_transcript_entry, truncate_for_telegram
 from claude.transcript import TranscriptReader, find_transcript_files
+
+_START_TIME = time.monotonic()
 from bot.media import (
     save_document,
     save_photo,
@@ -169,12 +173,25 @@ async def cmd_status(
     **_: Any,
 ) -> None:
     sessions = tmux.list_sessions()
+    uptime_s = int(time.monotonic() - _START_TIME)
+    hours, rem = divmod(uptime_s, 3600)
+    mins, secs = divmod(rem, 60)
+    uptime_str = f"{hours}h {mins}m {secs}s"
+
     lines = [
         f"Mode: {topics.topic_mode}",
         f"Sessions: {len(sessions)}",
         f"Caffeinate: {'on' if state.bot_state.caffeinate_active else 'off'}",
         f"Topics: {len(topics.all_targets())}",
+        f"Uptime: {uptime_str}",
     ]
+
+    # Show focused pane and direct mode per topic
+    for target, ts in state.bot_state.topics.items():
+        focused = ts.focused_pane_id or "none"
+        direct = "on" if ts.direct_mode else "off"
+        lines.append(f"  {target}: focused={focused}, direct={direct}")
+
     await message.reply("\n".join(lines))
 
 
@@ -1058,6 +1075,23 @@ async def handle_pane_focus(
     pane_id = (callback.data or "").split(":", 1)[1]
     state.set_focused_pane(topic_id, pane_id)
     await callback.answer(f"Focused on pane {pane_id}")
+
+
+@session_router.callback_query(F.data == "nav:back_to_windows")
+async def handle_nav_back_to_windows(
+    callback: CallbackQuery,
+    tmux: TmuxManager,
+    **_: Any,
+) -> None:
+    # Go back to sessions list (user can pick a session to see windows)
+    sessions = tmux.list_sessions()
+    items = [(s.session_name, s.session_id) for s in sessions]
+    if callback.message:
+        await callback.message.edit_text(
+            "Sessions:",
+            reply_markup=keyboards.sessions_keyboard(items),
+        )
+    await callback.answer()
 
 
 @session_router.callback_query(F.data == "nav:sessions")

@@ -44,12 +44,12 @@ def panes_keyboard(
 # --- Prompt keyboards ---
 
 
-def permission_keyboard() -> InlineKeyboardMarkup:
+def permission_keyboard(always_text: str = "Always Allow") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="Yes", callback_data="prompt:yes"),
-                InlineKeyboardButton(text="Always Allow", callback_data="prompt:always"),
+                InlineKeyboardButton(text=always_text, callback_data="prompt:always"),
             ],
             [
                 InlineKeyboardButton(text="No", callback_data="prompt:no"),

@@ -190,11 +190,13 @@ class ClaudeWatcher:
 
         if notification_type == "permission_prompt":
             text = body or "Claude is asking for permission..."
+            tool_name = payload.data.get("tool_name", "")
+            always_text = f"Always allow {tool_name}" if tool_name else "Always Allow"
             await self._bot.send_message(
                 chat_id=self._chat_id,
                 message_thread_id=topic_id,
                 text=text,
-                reply_markup=keyboards.permission_keyboard(),
+                reply_markup=keyboards.permission_keyboard(always_text),
             )
         elif notification_type == "idle_prompt":
             await self._bot.send_message(
