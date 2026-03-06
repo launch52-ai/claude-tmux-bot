@@ -45,12 +45,9 @@ The bot maps Telegram forum topics to tmux sessions (or windows) and uses inline
 git clone https://github.com/launch52-ai/claude-tmux-bot.git
 cd claude-tmux-bot
 
-# Install dependencies (brew install cairo + pip install)
+# Install everything — deps, directories, .env config
 chmod +x install.sh && ./install.sh
-
-# Configure
-cp .env.example .env
-# Edit .env with your bot token, chat ID, and user ID
+# The script will prompt for your bot token, chat ID, and user ID
 
 # Make sure tmux is running
 tmux new-session -d -s main
@@ -58,6 +55,8 @@ tmux new-session -d -s main
 # Run
 python3 main.py
 ```
+
+The install script handles: Python version check, tmux check, cairo + pip dependencies, data directories, and interactive `.env` setup.
 
 The bot will create a **Control** topic and topics for each existing tmux session automatically.
 
