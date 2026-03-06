@@ -17,19 +17,24 @@ Telegram bot for remote-controlling tmux sessions, primarily for interacting wit
 - `parser/` — ANSI stripping and terminal prompt detection
 - `watcher/` — State management and async watchers (session, claude, pane)
 - `main.py` — Entry point
-- `config.py` — Settings via CTB_ env vars
+- `config.py` — Settings via CTB_ env vars / `.env` file
 - `service.py` — macOS launchd service management
 
 ## Conventions
 - All env vars use `CTB_` prefix
+- Configuration via `.env` file (see `.env.example`) or environment variables
 - Use `Optional[T]` instead of `T | None` for Python 3.9 compatibility (pydantic runtime evaluation)
 - Use `Union[A, B]` instead of `A | B` for type aliases evaluated at runtime
 - `from __future__ import annotations` is fine for non-pydantic modules
-- Tests in `tests/` — run with `CTB_BOT_TOKEN=test CTB_CHAT_ID=1 CTB_ALLOWED_USER_ID=1 python3 -m pytest tests/ -v`
 
 ## Running
 ```bash
-./install.sh
-export CTB_BOT_TOKEN=... CTB_CHAT_ID=... CTB_ALLOWED_USER_ID=...
+cp .env.example .env
+# Edit .env with your values
 python3 main.py
+```
+
+## Testing
+```bash
+python3 -m pytest tests/ -v
 ```

@@ -17,7 +17,7 @@ fi
 
 # Python dependencies
 echo "Installing Python dependencies..."
-pip install -r "$(dirname "$0")/requirements.txt"
+pip3 install -r "$(dirname "$0")/requirements.txt"
 
 # Create data directories
 mkdir -p ~/.ctb/media
