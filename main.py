@@ -145,7 +145,7 @@ async def main() -> None:
     # Core services
     tmux = TmuxManager()
     state = StateManager(settings.state_file)
-    topics = TopicManager(bot, settings.chat_id, settings.topic_mode)
+    topics = TopicManager(bot, settings.chat_id, settings.topic_mode, settings.topic_cleanup)
 
     # Setup routers with dependency injection
     setup_routers(dp, topics, tmux, state, settings)

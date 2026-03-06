@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 
     # Topic mode
     topic_mode: str = "session"  # "session" or "window"
+    topic_cleanup: str = "close"  # "close" or "delete" — what to do with stale topics
 
     # Polling / streaming
     poll_interval_active: float = 0.5
