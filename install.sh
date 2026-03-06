@@ -51,7 +51,7 @@ if command -v brew &>/dev/null; then
     fi
 fi
 
-pip3 install -q -r "$SCRIPT_DIR/requirements.txt"
+pip3 install -q --no-warn-script-location -r "$SCRIPT_DIR/requirements.txt" 2>&1 | grep -v "^WARNING.*pip version"
 echo "  ✓ Python packages installed"
 
 # =============================================
