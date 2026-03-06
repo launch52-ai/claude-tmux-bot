@@ -110,7 +110,12 @@ if [ -z "$EXISTING_TOKEN" ] || [ "$EXISTING_TOKEN" = "your-telegram-bot-token" ]
         echo "  No token provided. Edit .env manually later."
         exit 0
     fi
-    sed -i '' "s|CTB_BOT_TOKEN=.*|CTB_BOT_TOKEN=$BOT_TOKEN|" "$ENV_FILE"
+    # Use awk to avoid issues with special chars in token
+    awk -v token="$BOT_TOKEN" '{
+        if ($0 ~ /^CTB_BOT_TOKEN=/) print "CTB_BOT_TOKEN=" token;
+        else print
+    }' "$ENV_FILE" > "$ENV_FILE.tmp" && mv "$ENV_FILE.tmp" "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
 else
     BOT_TOKEN="$EXISTING_TOKEN"
     echo "  ✓ Bot token already in .env"

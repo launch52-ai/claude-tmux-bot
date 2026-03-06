@@ -36,6 +36,12 @@ INPUT=$(cat)
 EVENT_TYPE="${{1:-unknown}}"
 TIMESTAMP=$(date +%s%N)
 PANE_ID="${{TMUX_PANE:-unknown}}"
+
+# Default to empty object if no input
+if [ -z "$INPUT" ]; then
+    INPUT='{{}}'
+fi
+
 SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null || echo "")
 
 EVENT_FILE="{_EVENTS_DIR}/${{TIMESTAMP}}_${{EVENT_TYPE}}.json"
@@ -78,8 +84,8 @@ def _update_claude_settings() -> None:
     script = str(_HOOK_SCRIPT)
 
     # New hooks format: each event is an array of {matcher, hooks} objects
-    # matcher: {} means match all (no filtering)
-    # hooks: array of hook commands
+    # matcher: "" (empty string) means match all, or a regex like "Bash"
+    # hooks: array of hook handler objects
     event_names = [
         HookEvent.PRE_TOOL_USE.value,
         HookEvent.POST_TOOL_USE.value,
@@ -124,14 +130,9 @@ def _update_claude_settings() -> None:
                 })
                 already_installed = True
             else:
-                # Old-format entry from another tool — migrate it too
-                if "command" in entry:
-                    migrated.append({
-                        "matcher": "",
-                        "hooks": [entry],
-                    })
-                else:
-                    migrated.append(entry)
+                # Old-format entry from another tool — keep as-is
+                # (don't migrate other tools' hooks, only our own)
+                migrated.append(entry)
 
         if not already_installed:
             migrated.append({

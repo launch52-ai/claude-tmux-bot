@@ -33,9 +33,13 @@ HOOK_SCRIPT="$HOME/.ctb/hooks/ctb_hook.sh"
 if [ -f "$CLAUDE_SETTINGS" ] && command -v python3 &>/dev/null; then
     echo "  Removing hooks from Claude Code settings..."
     cd "$SCRIPT_DIR"
-    python3 -c "from claude.hooks import uninstall_hooks; uninstall_hooks()" 2>/dev/null && \
-        echo "  ✓ Hooks removed from $CLAUDE_SETTINGS" || \
-        echo "  ⚠ Could not remove hooks (edit $CLAUDE_SETTINGS manually)"
+    if python3 -c "from claude.hooks import uninstall_hooks; uninstall_hooks()" 2>&1; then
+        echo "  ✓ Hooks removed from $CLAUDE_SETTINGS"
+    else
+        echo "  ⚠ Could not remove hooks automatically."
+        echo "    Edit $CLAUDE_SETTINGS and remove entries"
+        echo "    containing 'ctb_hook.sh'"
+    fi
 else
     echo "  · No Claude settings found"
 fi
@@ -85,6 +89,7 @@ fi
 # =============================================
 
 echo ""
+echo "  Note: other projects may also use these packages."
 read -rp "  Uninstall Python packages (aiogram, libtmux, etc.)? [y/N]: " UNINSTALL_PKGS
 if [ "$UNINSTALL_PKGS" = "y" ] || [ "$UNINSTALL_PKGS" = "Y" ]; then
     pip3 uninstall -y -r "$SCRIPT_DIR/requirements.txt" 2>/dev/null || true
