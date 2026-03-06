@@ -139,12 +139,23 @@ async def cmd_status(
 
 @control_router.message(Command("service"))
 async def cmd_service(message: Message, **_: Any) -> None:
+    import service
+
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2:
         await message.reply("Usage: /service [install|uninstall|status]")
         return
-    # Service management is handled in Phase 6
-    await message.reply("Service management not yet implemented.")
+
+    action = args[1].strip().lower()
+    if action == "install":
+        result = service.install()
+    elif action == "uninstall":
+        result = service.uninstall()
+    elif action == "status":
+        result = service.status()
+    else:
+        result = "Usage: /service [install|uninstall|status]"
+    await message.reply(result)
 
 
 # ═══════════════════════════════════════════
