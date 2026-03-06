@@ -282,8 +282,17 @@ case "$POST_CHOICE" in
             echo "  Or install later from Telegram: /service install"
         else
             echo "  ✓ $SERVICE_RESULT"
+            echo "  Bot files deployed to ~/.ctb/app/"
             echo ""
             echo "  Manage from Telegram: /service status | /service uninstall"
+            echo ""
+            read -rp "  Remove this project directory ($SCRIPT_DIR)? [y/N]: " REMOVE_DIR
+            if [ "$REMOVE_DIR" = "y" ] || [ "$REMOVE_DIR" = "Y" ]; then
+                rm -rf "$SCRIPT_DIR"
+                echo "  ✓ Project directory removed"
+            else
+                echo "  · Kept project directory"
+            fi
         fi
         echo ""
         ;;
