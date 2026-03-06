@@ -258,7 +258,7 @@ fi
 echo "  What would you like to do?"
 echo ""
 echo "    1) Start the bot now"
-echo "    2) Install as a service (auto-start on login)"
+echo "    2) Install as a service (starts now, auto-restarts on login)"
 echo "    3) Exit (start manually later with: python3 main.py)"
 echo ""
 read -rp "  Choose [1/2/3]: " POST_CHOICE
