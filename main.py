@@ -152,7 +152,7 @@ async def main() -> None:
 
     # Inject dependencies into handler context
     dp["tmux"] = tmux
-    dp["state"] = state
+    dp["state_manager"] = state
     dp["topics"] = topics
     dp["settings"] = settings
     dp["bot"] = bot

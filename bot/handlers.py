@@ -153,19 +153,19 @@ async def cmd_topic_mode(
 
 
 @control_router.message(Command("caffeinate"))
-async def cmd_caffeinate(message: Message, state: StateManager, **_: Any) -> None:
+async def cmd_caffeinate(message: Message, state_manager: StateManager, **_: Any) -> None:
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2:
-        status = "on" if state.bot_state.caffeinate_active else "off"
+        status = "on" if state_manager.bot_state.caffeinate_active else "off"
         await message.reply(f"Caffeinate is {status}.")
         return
 
     action = args[1].strip().lower()
     if action == "on":
-        await state.start_caffeinate()
+        await state_manager.start_caffeinate()
         await message.reply("Caffeinate enabled. Mac will stay awake.")
     elif action == "off":
-        await state.stop_caffeinate()
+        await state_manager.stop_caffeinate()
         await message.reply("Caffeinate disabled.")
     else:
         await message.reply("Usage: /caffeinate [on|off]")
@@ -176,7 +176,7 @@ async def cmd_status(
     message: Message,
     topics: TopicManager,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     sessions = tmux.list_sessions()
@@ -188,13 +188,13 @@ async def cmd_status(
     lines = [
         f"Mode: {topics.topic_mode}",
         f"Sessions: {len(sessions)}",
-        f"Caffeinate: {'on' if state.bot_state.caffeinate_active else 'off'}",
+        f"Caffeinate: {'on' if state_manager.bot_state.caffeinate_active else 'off'}",
         f"Topics: {len(topics.all_targets())}",
         f"Uptime: {uptime_str}",
     ]
 
     # Show focused pane and direct mode per topic
-    for target, ts in state.bot_state.topics.items():
+    for target, ts in state_manager.bot_state.topics.items():
         focused = ts.focused_pane_id or "none"
         direct = "on" if ts.direct_mode else "off"
         lines.append(f"  {target}: focused={focused}, direct={direct}")
@@ -232,7 +232,7 @@ async def cmd_service(message: Message, **_: Any) -> None:
 async def cmd_send(
     message: Message,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = _get_topic_id(message)
@@ -245,12 +245,12 @@ async def cmd_send(
         return
 
     text = args[1]
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await message.reply("No pane focused in this topic.")
         return
 
-    is_claude = state.is_claude_pane(pane_id)
+    is_claude = state_manager.is_claude_pane(pane_id)
     if is_claude:
         await tmux.send_keys_claude(pane_id, text)
     else:
@@ -258,12 +258,12 @@ async def cmd_send(
 
 
 @session_router.message(Command("direct"))
-async def cmd_direct(message: Message, state: StateManager, **_: Any) -> None:
+async def cmd_direct(message: Message, state_manager: StateManager, **_: Any) -> None:
     topic_id = _get_topic_id(message)
     if topic_id is None:
         return
 
-    new_state = state.toggle_direct_mode(topic_id)
+    new_state = state_manager.toggle_direct_mode(topic_id)
     mode_str = "on" if new_state else "off"
     await message.reply(f"Direct mode: {mode_str}")
 
@@ -272,7 +272,7 @@ async def cmd_direct(message: Message, state: StateManager, **_: Any) -> None:
 async def cmd_capture(
     message: Message,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     settings: Settings,
     **_: Any,
 ) -> None:
@@ -280,7 +280,7 @@ async def cmd_capture(
     if topic_id is None:
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await message.reply("No pane focused.")
         return
@@ -299,7 +299,7 @@ async def cmd_capture(
 async def cmd_screenshot(
     message: Message,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     bot: Bot,
     settings: Settings,
     **_: Any,
@@ -308,7 +308,7 @@ async def cmd_screenshot(
     if topic_id is None:
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await message.reply("No pane focused.")
         return
@@ -334,7 +334,7 @@ async def cmd_screenshot(
 async def cmd_key(
     message: Message,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = _get_topic_id(message)
@@ -346,7 +346,7 @@ async def cmd_key(
         await message.reply("Usage: /key <combo> (e.g., /key ctrl+a, /key up)")
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await message.reply("No pane focused.")
         return
@@ -356,13 +356,13 @@ async def cmd_key(
 
 
 @session_router.message(Command("claude"))
-async def cmd_claude(message: Message, state: StateManager, **_: Any) -> None:
+async def cmd_claude(message: Message, state_manager: StateManager, **_: Any) -> None:
     topic_id = _get_topic_id(message)
     if topic_id is None:
         return
 
-    pane_id = state.get_focused_pane(topic_id)
-    if pane_id and state.is_claude_pane(pane_id):
+    pane_id = state_manager.get_focused_pane(topic_id)
+    if pane_id and state_manager.is_claude_pane(pane_id):
         await message.reply(
             "Claude commands:",
             reply_markup=keyboards.claude_commands_keyboard(),
@@ -375,7 +375,7 @@ async def cmd_claude(message: Message, state: StateManager, **_: Any) -> None:
 async def cmd_new_window(
     message: Message,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     topics: TopicManager,
     **_: Any,
 ) -> None:
@@ -403,14 +403,14 @@ async def cmd_new_window(
 async def cmd_split(
     message: Message,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = _get_topic_id(message)
     if topic_id is None:
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await message.reply("No pane focused.")
         return
@@ -431,13 +431,13 @@ async def cmd_split(
 async def cmd_kill_pane(
     message: Message,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = _get_topic_id(message)
     if topic_id is None:
         return
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if pane_id and tmux.kill_pane(pane_id):
         await message.reply("Pane killed.")
     else:
@@ -449,7 +449,7 @@ async def cmd_kill_window(
     message: Message,
     tmux: TmuxManager,
     topics: TopicManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = _get_topic_id(message)
@@ -462,7 +462,7 @@ async def cmd_kill_window(
     # In window mode, target is "session:window" — find the window
     # In session mode, we need the focused pane's window
     sessions = tmux.list_sessions()
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     for session in sessions:
         for window in session.windows:
             for pane in window.panes:
@@ -502,7 +502,7 @@ _HISTORY_PAGE_SIZE = 5
 @session_router.message(Command("history"))
 async def cmd_history(
     message: Message,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = _get_topic_id(message)
@@ -545,22 +545,22 @@ async def cmd_file(
 async def handle_direct_text(
     message: Message,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = _get_topic_id(message)
     if topic_id is None:
         return
 
-    if not state.is_direct_mode(topic_id):
+    if not state_manager.is_direct_mode(topic_id):
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         return
 
     text = message.text or ""
-    if state.is_claude_pane(pane_id):
+    if state_manager.is_claude_pane(pane_id):
         await tmux.send_keys_claude(pane_id, text)
     else:
         tmux.send_keys(pane_id, text)
@@ -576,7 +576,7 @@ async def handle_voice(
     message: Message,
     bot: Bot,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     settings: Settings,
     **_: Any,
 ) -> None:
@@ -588,7 +588,7 @@ async def handle_voice(
         await message.reply("Voice transcription not configured (CTB_OPENAI_API_KEY).")
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await message.reply("No pane focused.")
         return
@@ -600,7 +600,7 @@ async def handle_voice(
 
     await message.reply(f"Transcribed: {text}")
 
-    if state.is_claude_pane(pane_id):
+    if state_manager.is_claude_pane(pane_id):
         await tmux.send_keys_claude(pane_id, text)
     else:
         tmux.send_keys(pane_id, text)
@@ -616,7 +616,7 @@ async def handle_photo(
     message: Message,
     bot: Bot,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = _get_topic_id(message)
@@ -628,8 +628,8 @@ async def handle_photo(
         await message.reply("Failed to save photo.")
         return
 
-    pane_id = state.get_focused_pane(topic_id)
-    if pane_id and state.is_claude_pane(pane_id):
+    pane_id = state_manager.get_focused_pane(topic_id)
+    if pane_id and state_manager.is_claude_pane(pane_id):
         await tmux.send_keys_claude(pane_id, str(path))
         await message.reply(f"Photo saved and path sent to Claude: {path}")
     else:
@@ -641,7 +641,7 @@ async def handle_document(
     message: Message,
     bot: Bot,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = _get_topic_id(message)
@@ -653,8 +653,8 @@ async def handle_document(
         await message.reply("Failed to save file.")
         return
 
-    pane_id = state.get_focused_pane(topic_id)
-    if pane_id and state.is_claude_pane(pane_id):
+    pane_id = state_manager.get_focused_pane(topic_id)
+    if pane_id and state_manager.is_claude_pane(pane_id):
         await tmux.send_keys_claude(pane_id, str(path))
         await message.reply(f"File saved and path sent to Claude: {path}")
     else:
@@ -670,7 +670,7 @@ async def handle_document(
 async def handle_prompt_callback(
     callback: CallbackQuery,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = callback.message.message_thread_id if callback.message else None
@@ -678,7 +678,7 @@ async def handle_prompt_callback(
         await callback.answer()
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await callback.answer("No pane focused.")
         return
@@ -706,7 +706,7 @@ async def handle_prompt_callback(
 async def handle_choice_callback(
     callback: CallbackQuery,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = callback.message.message_thread_id if callback.message else None
@@ -714,7 +714,7 @@ async def handle_choice_callback(
         await callback.answer()
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await callback.answer("No pane focused.")
         return
@@ -743,7 +743,7 @@ async def handle_choice_callback(
 async def handle_plan_callback(
     callback: CallbackQuery,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = callback.message.message_thread_id if callback.message else None
@@ -751,7 +751,7 @@ async def handle_plan_callback(
         await callback.answer()
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await callback.answer("No pane focused.")
         return
@@ -779,7 +779,7 @@ async def handle_plan_callback(
 async def handle_yes_no_callback(
     callback: CallbackQuery,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = callback.message.message_thread_id if callback.message else None
@@ -787,7 +787,7 @@ async def handle_yes_no_callback(
         await callback.answer()
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await callback.answer("No pane focused.")
         return
@@ -801,7 +801,7 @@ async def handle_yes_no_callback(
 async def handle_checkpoint_callback(
     callback: CallbackQuery,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = callback.message.message_thread_id if callback.message else None
@@ -809,7 +809,7 @@ async def handle_checkpoint_callback(
         await callback.answer()
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await callback.answer("No pane focused.")
         return
@@ -834,7 +834,7 @@ async def handle_checkpoint_callback(
 async def handle_action_callback(
     callback: CallbackQuery,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     bot: Bot,
     settings: Settings,
     **_: Any,
@@ -844,7 +844,7 @@ async def handle_action_callback(
         await callback.answer()
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await callback.answer("No pane focused.")
         return
@@ -879,7 +879,7 @@ async def handle_action_callback(
 async def handle_claude_cmd_callback(
     callback: CallbackQuery,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = callback.message.message_thread_id if callback.message else None
@@ -887,7 +887,7 @@ async def handle_claude_cmd_callback(
         await callback.answer()
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await callback.answer("No pane focused.")
         return
@@ -907,7 +907,7 @@ async def handle_claude_cmd_callback(
 @session_router.callback_query(F.data.startswith("history:"))
 async def handle_history_callback(
     callback: CallbackQuery,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = callback.message.message_thread_id if callback.message else None
@@ -1011,7 +1011,7 @@ async def handle_dir_page(callback: CallbackQuery, settings: Settings, **_: Any)
 async def handle_multi_callback(
     callback: CallbackQuery,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = callback.message.message_thread_id if callback.message else None
@@ -1019,7 +1019,7 @@ async def handle_multi_callback(
         await callback.answer()
         return
 
-    pane_id = state.get_focused_pane(topic_id)
+    pane_id = state_manager.get_focused_pane(topic_id)
     if not pane_id:
         await callback.answer("No pane focused.")
         return
@@ -1105,7 +1105,7 @@ async def handle_window_nav(
 @session_router.callback_query(F.data.startswith("pane:"))
 async def handle_pane_focus(
     callback: CallbackQuery,
-    state: StateManager,
+    state_manager: StateManager,
     **_: Any,
 ) -> None:
     topic_id = callback.message.message_thread_id if callback.message else None
@@ -1114,7 +1114,7 @@ async def handle_pane_focus(
         return
 
     pane_id = _cb_value(callback)
-    state.set_focused_pane(topic_id, pane_id)
+    state_manager.set_focused_pane(topic_id, pane_id)
     await callback.answer(f"Focused on pane {pane_id}")
 
 
@@ -1152,13 +1152,13 @@ async def handle_nav_sessions(
 
 
 def _render_history_page(
-    state: StateManager,
+    state_manager: StateManager,
     topic_id: int,
     page: int,
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     from claude.models import TranscriptRole
 
-    topic_state = state.get_topic_state(topic_id)
+    topic_state = state_manager.get_topic_state(topic_id)
     if topic_state is None:
         return "No session associated with this topic.", None
 
@@ -1248,7 +1248,7 @@ def setup_routers(
     dp: Dispatcher,
     topics: TopicManager,
     tmux: TmuxManager,
-    state: StateManager,
+    state_manager: StateManager,
     settings: Settings,
 ) -> None:
     dp.include_router(control_router)
