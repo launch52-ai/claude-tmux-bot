@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Union
 
 
 class HookEvent(str, Enum):
@@ -101,12 +101,12 @@ class TranscriptToolResultBlock:
     is_error: bool = False
 
 
-TranscriptContentBlock = (
-    TranscriptTextBlock
-    | TranscriptThinkingBlock
-    | TranscriptToolUseBlock
-    | TranscriptToolResultBlock
-)
+TranscriptContentBlock = Union[
+    TranscriptTextBlock,
+    TranscriptThinkingBlock,
+    TranscriptToolUseBlock,
+    TranscriptToolResultBlock,
+]
 
 
 @dataclass(frozen=True)
