@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import signal
 import sys
-from pathlib import Path
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import Message
 
 from bot.handlers import control_router, session_router, setup_routers
 from bot.middleware import AuthMiddleware
@@ -26,111 +23,6 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-
-async def _run_setup(bot_token: str) -> None:
-    """Interactive setup: discovers chat ID and user ID from a Telegram message."""
-    print()
-    print("=" * 50)
-    print("  SETUP MODE")
-    print("=" * 50)
-    print()
-    print("CTB_CHAT_ID is not set. Let's find it.")
-    print()
-    print("Steps:")
-    print("  1. Create a Telegram supergroup with Topics enabled")
-    print("  2. Add your bot as admin (with 'Manage Topics' permission)")
-    print("  3. Send any message in the group")
-    print()
-    print("Waiting for a message...")
-    print()
-
-    bot = Bot(token=bot_token)
-    dp = Dispatcher()
-    found = asyncio.Event()
-    result: dict[str, int] = {}
-
-    @dp.message()
-    async def _on_any_message(message: Message) -> None:
-        if message.chat.type not in ("supergroup", "group"):
-            await message.reply(
-                "This is not a group chat. Please send a message in your supergroup."
-            )
-            return
-
-        chat_id = message.chat.id
-        user_id = message.from_user.id if message.from_user else 0
-        is_forum = getattr(message.chat, "is_forum", False)
-
-        result["chat_id"] = chat_id
-        result["user_id"] = user_id
-
-        await message.reply(
-            f"Got it!\n\n"
-            f"Chat ID: {chat_id}\n"
-            f"Your User ID: {user_id}\n"
-            f"Forum topics: {'yes' if is_forum else 'no — please enable Topics in group settings'}\n\n"
-            f"Saving to .env..."
-        )
-        found.set()
-
-    async def _poll() -> None:
-        await dp.start_polling(bot)
-
-    task = asyncio.create_task(_poll())
-
-    await found.wait()
-
-    task.cancel()
-    try:
-        await asyncio.gather(task, return_exceptions=True)
-    except Exception:
-        pass
-    await bot.session.close()
-
-    # Write to .env
-    chat_id = result["chat_id"]
-    user_id = result["user_id"]
-    env_path = Path(__file__).parent / ".env"
-
-    if env_path.exists():
-        content = env_path.read_text()
-        # Update existing values or append
-        lines = content.splitlines()
-        new_lines = []
-        set_chat = False
-        set_user = False
-        for line in lines:
-            if line.startswith("CTB_CHAT_ID="):
-                new_lines.append(f"CTB_CHAT_ID={chat_id}")
-                set_chat = True
-            elif line.startswith("CTB_ALLOWED_USER_ID=") and (
-                "123456789" in line or line.strip().endswith("=")
-            ):
-                new_lines.append(f"CTB_ALLOWED_USER_ID={user_id}")
-                set_user = True
-            else:
-                new_lines.append(line)
-        if not set_chat:
-            new_lines.append(f"CTB_CHAT_ID={chat_id}")
-        if not set_user:
-            new_lines.append(f"CTB_ALLOWED_USER_ID={user_id}")
-        env_path.write_text("\n".join(new_lines) + "\n")
-    else:
-        env_path.write_text(
-            f"CTB_BOT_TOKEN={os.environ.get('CTB_BOT_TOKEN', 'your-token-here')}\n"
-            f"CTB_CHAT_ID={chat_id}\n"
-            f"CTB_ALLOWED_USER_ID={user_id}\n"
-        )
-        env_path.chmod(0o600)
-
-    print()
-    print(f"  Chat ID:  {chat_id}")
-    print(f"  User ID:  {user_id}")
-    print(f"  Saved to: {env_path}")
-    print()
-    print("Now run `python3 main.py` again to start the bot.")
-    print()
 
 
 async def _startup(
@@ -239,12 +131,9 @@ async def _shutdown(
 async def main() -> None:
     settings = Settings()  # type: ignore[call-arg]
 
-    if not settings.chat_id:
-        await _run_setup(settings.bot_token)
-        return
-
-    if not settings.allowed_user_id:
-        print("ERROR: CTB_ALLOWED_USER_ID is not set. Run setup mode by unsetting CTB_CHAT_ID.")
+    if not settings.chat_id or not settings.allowed_user_id:
+        print("ERROR: CTB_CHAT_ID or CTB_ALLOWED_USER_ID not set.")
+        print("Run ./install.sh to complete setup.")
         return
 
     bot = Bot(token=settings.bot_token)
