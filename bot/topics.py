@@ -12,10 +12,17 @@ logger = logging.getLogger(__name__)
 
 
 class TopicManager:
-    def __init__(self, bot: Bot, chat_id: int, topic_mode: str = "session") -> None:
+    def __init__(
+        self,
+        bot: Bot,
+        chat_id: int,
+        topic_mode: str = "session",
+        topic_cleanup: str = "close",
+    ) -> None:
         self._bot = bot
         self._chat_id = chat_id
         self._topic_mode = topic_mode
+        self._topic_cleanup = topic_cleanup  # "close" or "delete"
         # tmux_target -> topic_id
         self._topic_map: dict[str, int] = {}
         # topic_id -> tmux_target
@@ -77,14 +84,15 @@ class TopicManager:
         if existing is not None:
             return existing
 
+        topic_name = f"{session.session_index}-{session.session_name}"
         topic = await self._bot.create_forum_topic(
             chat_id=self._chat_id,
-            name=session.session_name,
+            name=topic_name,
         )
         topic_id = topic.message_thread_id
         self._topic_map[target] = topic_id
         self._reverse_map[topic_id] = target
-        logger.info("Created topic '%s' -> %d", target, topic_id)
+        logger.info("Created topic '%s' -> %d", topic_name, topic_id)
         return topic_id
 
     async def create_topic_for_window(
@@ -163,10 +171,17 @@ class TopicManager:
         if topic_id is not None:
             self._reverse_map.pop(topic_id, None)
             try:
-                await self._bot.close_forum_topic(
-                    chat_id=self._chat_id,
-                    message_thread_id=topic_id,
-                )
-                logger.info("Archived topic for '%s'", target)
+                if self._topic_cleanup == "delete":
+                    await self._bot.delete_forum_topic(
+                        chat_id=self._chat_id,
+                        message_thread_id=topic_id,
+                    )
+                    logger.info("Deleted topic for '%s'", target)
+                else:
+                    await self._bot.close_forum_topic(
+                        chat_id=self._chat_id,
+                        message_thread_id=topic_id,
+                    )
+                    logger.info("Closed topic for '%s'", target)
             except Exception:
                 logger.warning("Failed to archive topic for '%s'", target)
