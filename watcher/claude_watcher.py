@@ -251,7 +251,11 @@ class ClaudeWatcher:
                 text="Claude is waiting for input.",
             )
         else:
-            text = f"{title}: {body}" if body else title
+            # Skip notifications with no useful content
+            if not body:
+                logger.debug("Skipping empty notification type=%s", notification_type)
+                return
+            text = f"{title}: {body}" if title and title != "Notification" else body
             await self._acquire_send()
             await self._bot.send_message(
                 chat_id=self._chat_id,
