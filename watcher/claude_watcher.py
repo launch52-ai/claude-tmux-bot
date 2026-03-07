@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aiogram import Bot
@@ -71,6 +72,11 @@ class ClaudeWatcher:
         if topic_id is None:
             logger.debug("No topic for pane %s, skipping event %s", pane_id, payload.event)
             return
+
+        # Always try to init transcript reader on any event with a session_id
+        if payload.session_id:
+            transcript_path = payload.data.get("transcript_path")
+            self._init_transcript_reader(payload.session_id, topic_id, transcript_path)
 
         if payload.event == HookEvent.POST_TOOL_USE_FAILURE:
             await self._handle_tool_failure(payload, topic_id, pane_id)
@@ -186,19 +192,32 @@ class ClaudeWatcher:
         except Exception:
             logger.debug("Failed to send typing indicator")
 
-    def _init_transcript_reader(self, session_id: str, topic_id: int) -> None:
+    def _init_transcript_reader(
+        self, session_id: str, topic_id: int, transcript_path: str | None = None
+    ) -> None:
         if not session_id:
             return
         self._session_topics[session_id] = topic_id
         if session_id in self._transcript_readers:
             return
-        files = find_transcript_files(session_id)
-        if files:
-            reader = TranscriptReader(files[0])
+
+        # Use provided path or search for it
+        filepath: Path | None = None
+        if transcript_path:
+            p = Path(transcript_path)
+            if p.exists():
+                filepath = p
+        if filepath is None:
+            files = find_transcript_files(session_id)
+            if files:
+                filepath = files[0]
+
+        if filepath:
+            reader = TranscriptReader(filepath)
             # Skip to end so we only get new content from this point
             reader.read_new_entries()
             self._transcript_readers[session_id] = reader
-            logger.debug("Initialized transcript reader for session %s: %s", session_id, files[0])
+            logger.info("Initialized transcript reader for session %s: %s", session_id, filepath)
 
     def _cleanup_session(self, session_id: str) -> None:
         self._transcript_readers.pop(session_id, None)
