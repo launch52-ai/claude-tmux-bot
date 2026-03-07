@@ -147,7 +147,14 @@ class TmuxManager:
         pane = self._get_pane(pane_id)
         if pane is None:
             return None
-        lines = pane.capture_pane(p=not ansi, e=ansi)
+        if ansi:
+            # libtmux 0.46+ removed p/e flags; use tmux command directly
+            try:
+                result = self.server.cmd("capture-pane", "-p", "-e", "-t", pane_id)
+                return "\n".join(result.stdout) if result.stdout else ""
+            except Exception:
+                return None
+        lines = pane.capture_pane()
         if isinstance(lines, list):
             return "\n".join(lines)
         return lines
