@@ -109,7 +109,9 @@ class ClaudeWatcher:
         event = parse_tool_use(payload)
         cwd = payload.data.get("cwd", "")
         text = format_hook_tool_use(event, cwd)
-        await self._send_transcript_message(topic_id, text)
+        await self._send_transcript_message(
+            topic_id, text, reply_markup=keyboards.action_bar_keyboard(claude_active=True),
+        )
 
     async def _handle_tool_failure(
         self, payload: HookPayload, topic_id: int, pane_id: str
@@ -261,7 +263,9 @@ class ClaudeWatcher:
                     continue
                 await self._send_transcript_message(topic_id, text)
 
-    async def _send_transcript_message(self, topic_id: int, text: str) -> None:
+    async def _send_transcript_message(
+        self, topic_id: int, text: str, reply_markup: object = None,
+    ) -> None:
         for attempt in range(3):
             try:
                 await self._bot.send_message(
@@ -269,6 +273,7 @@ class ClaudeWatcher:
                     message_thread_id=topic_id,
                     text=text,
                     parse_mode="HTML",
+                    reply_markup=reply_markup,
                 )
                 return
             except TelegramRetryAfter as e:
@@ -281,6 +286,7 @@ class ClaudeWatcher:
                         chat_id=self._chat_id,
                         message_thread_id=topic_id,
                         text=text,
+                        reply_markup=reply_markup,
                     )
                 except TelegramRetryAfter as e:
                     await asyncio.sleep(e.retry_after)
