@@ -10,7 +10,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramRetryAfter
 
 from bot import keyboards
-from bot.rate_limiter import GroupRateLimiter
+from bot.rate_limiter import GroupSender
 from bot.formatters import (
     format_hook_tool_use,
     format_stop_event,
@@ -69,12 +69,12 @@ class ClaudeWatcher:
         bot: Bot,
         chat_id: int,
         state: StateManager,
-        rate_limiter: GroupRateLimiter | None = None,
+        sender: GroupSender | None = None,
     ) -> None:
         self._bot = bot
         self._chat_id = chat_id
         self._state = state
-        self._limiter = rate_limiter
+        self._sender = sender
         self._hook_watcher = HookEventWatcher(self._on_hook_event)
         self._claude_active_panes: set[str] = set()
         self._transcript_readers: dict[str, TranscriptReader] = {}
@@ -138,6 +138,8 @@ class ClaudeWatcher:
             self._init_transcript_reader(payload.session_id, topic_id)
             # Reset activity message for new turn
             self._activity_msgs.pop(topic_id, None)
+            if self._sender:
+                self._sender.clear_topic(topic_id)
             await self._send_typing_indicator(topic_id)
 
     async def _handle_tool_use(
@@ -197,12 +199,7 @@ class ClaudeWatcher:
         # Fallback: send standalone failure message
         event = parse_tool_result(payload)
         text = format_tool_failure(event)
-        await self._acquire_send()
-        await self._bot.send_message(
-            chat_id=self._chat_id,
-            message_thread_id=topic_id,
-            text=text,
-        )
+        await self._send(topic_id, text, parse_mode=None)
 
     async def _handle_stop(
         self, payload: HookPayload, topic_id: int, pane_id: str
@@ -223,11 +220,12 @@ class ClaudeWatcher:
         self._claude_active_panes.discard(pane_id)
         self._cleanup_session(payload.session_id)
         text = format_stop_event(event)
-        await self._send_transcript_message(topic_id, text)
+        await self._send(topic_id, text, parse_mode=None)
 
     async def _handle_notification(
         self, payload: HookPayload, topic_id: int
     ) -> None:
+        logger.info("Notification payload: %s", payload.data)
         notification_type = payload.data.get("type", "")
         title = payload.data.get("title", "Notification")
         body = payload.data.get("body", "")
@@ -236,45 +234,50 @@ class ClaudeWatcher:
             text = body or "Claude is asking for permission..."
             tool_name = payload.data.get("tool_name", "")
             always_text = f"Always allow {tool_name}" if tool_name else "Always Allow"
-            await self._acquire_send()
-            await self._bot.send_message(
-                chat_id=self._chat_id,
-                message_thread_id=topic_id,
-                text=text,
+            await self._send(
+                topic_id, text,
+                parse_mode=None,
                 reply_markup=keyboards.permission_keyboard(always_text),
             )
         elif notification_type == "idle_prompt":
-            await self._acquire_send()
-            await self._bot.send_message(
-                chat_id=self._chat_id,
-                message_thread_id=topic_id,
-                text="Claude is waiting for input.",
-            )
+            await self._send(topic_id, "Claude is waiting for input.", parse_mode=None)
         else:
             # Skip notifications with no useful content
             if not body:
                 logger.debug("Skipping empty notification type=%s", notification_type)
                 return
             text = f"{title}: {body}" if title and title != "Notification" else body
-            await self._acquire_send()
+            await self._send(topic_id, text, parse_mode=None)
+
+    async def _send(
+        self,
+        topic_id: int,
+        text: str,
+        parse_mode: str | None = "HTML",
+        reply_markup: object = None,
+    ) -> None:
+        """Send a message using GroupSender (with edit-fallback) or direct bot."""
+        if self._sender:
+            await self._sender.send(topic_id, text, parse_mode=parse_mode, reply_markup=reply_markup)
+        else:
             await self._bot.send_message(
                 chat_id=self._chat_id,
                 message_thread_id=topic_id,
                 text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
             )
-
-    async def _acquire_send(self) -> None:
-        if self._limiter is not None:
-            await self._limiter.acquire()
 
     async def _send_activity_message(
         self, topic_id: int, text: str,
     ) -> object:
         """Send a new activity message with Stop button. Returns the Message."""
         kb = keyboards.action_bar_keyboard(claude_active=True)
+        if self._sender:
+            return await self._sender.send(topic_id, text, parse_mode="HTML", reply_markup=kb)
+
         for attempt in range(3):
             try:
-                await self._acquire_send()
                 return await self._bot.send_message(
                     chat_id=self._chat_id,
                     message_thread_id=topic_id,
@@ -285,16 +288,7 @@ class ClaudeWatcher:
             except TelegramRetryAfter as e:
                 await asyncio.sleep(e.retry_after)
             except Exception:
-                # Fallback without HTML (no extra acquire — already acquired)
-                try:
-                    return await self._bot.send_message(
-                        chat_id=self._chat_id,
-                        message_thread_id=topic_id,
-                        text=text,
-                        reply_markup=kb,
-                    )
-                except Exception:
-                    logger.debug("Failed to send activity message")
+                logger.debug("Failed to send activity message")
                 return None
         return None
 
@@ -327,7 +321,6 @@ class ClaudeWatcher:
             except Exception:
                 pass
         except Exception:
-            # If edit fails (e.g. message too old), try without HTML
             try:
                 await self._bot.edit_message_text(
                     chat_id=self._chat_id,
@@ -405,32 +398,4 @@ class ClaudeWatcher:
                 # Text message resets the activity message so next tools
                 # get a fresh batch
                 self._activity_msgs.pop(topic_id, None)
-                await self._send_transcript_message(topic_id, text)
-
-    async def _send_transcript_message(self, topic_id: int, text: str) -> None:
-        for attempt in range(3):
-            try:
-                await self._acquire_send()
-                await self._bot.send_message(
-                    chat_id=self._chat_id,
-                    message_thread_id=topic_id,
-                    text=text,
-                    parse_mode="HTML",
-                )
-                return
-            except TelegramRetryAfter as e:
-                logger.debug("Rate limited, waiting %ss", e.retry_after)
-                await asyncio.sleep(e.retry_after)
-            except Exception:
-                # HTML parse error — try without formatting once, then give up
-                try:
-                    await self._bot.send_message(
-                        chat_id=self._chat_id,
-                        message_thread_id=topic_id,
-                        text=text,
-                    )
-                except TelegramRetryAfter as e:
-                    await asyncio.sleep(e.retry_after)
-                except Exception:
-                    logger.debug("Failed to send transcript message")
-                return
+                await self._send(topic_id, text)

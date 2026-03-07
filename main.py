@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher
 
 from bot.handlers import control_router, session_router, setup_routers
 from bot.middleware import AuthMiddleware
-from bot.rate_limiter import GroupRateLimiter
+from bot.rate_limiter import GroupSender
 from bot.topics import TopicManager
 from claude.hooks import install_hooks
 from config import Settings
@@ -91,11 +91,20 @@ async def _startup(
     state.save()
 
     # 7. Notify control topic
-    await bot.send_message(
-        chat_id=settings.chat_id,
-        message_thread_id=control_id,
-        text="Bot started.",
-    )
+    from aiogram.exceptions import TelegramRetryAfter
+    for _attempt in range(3):
+        try:
+            await bot.send_message(
+                chat_id=settings.chat_id,
+                message_thread_id=control_id,
+                text="Bot started.",
+            )
+            break
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after)
+        except Exception:
+            logger.warning("Failed to send startup message")
+            break
 
     logger.info("Startup complete")
 
@@ -161,15 +170,15 @@ async def main() -> None:
     dp["settings"] = settings
     dp["bot"] = bot
 
-    # Shared rate limiter for Telegram group send calls
-    send_limiter = GroupRateLimiter()
+    # Shared rate-limited sender with edit-fallback for Telegram groups
+    sender = GroupSender(bot, settings.chat_id)
 
     # Watchers
     session_watcher = SessionWatcher(
         bot, settings.chat_id, tmux, topics, state
     )
-    claude_watcher = ClaudeWatcher(bot, settings.chat_id, state, send_limiter)
-    pane_watcher = PaneWatcher(bot, settings.chat_id, tmux, state, settings, send_limiter)
+    claude_watcher = ClaudeWatcher(bot, settings.chat_id, state, sender)
+    pane_watcher = PaneWatcher(bot, settings.chat_id, tmux, state, settings, sender)
 
     # Startup
     await _startup(bot, settings, tmux, topics, state)
