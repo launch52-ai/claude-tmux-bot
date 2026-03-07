@@ -19,6 +19,7 @@ from claude.hooks import (
     HookEventWatcher,
     parse_stop_event,
     parse_tool_result,
+    parse_tool_use,
 )
 from claude.models import HookEvent, HookPayload, TranscriptRole
 from claude.transcript import TranscriptReader, find_transcript_files
