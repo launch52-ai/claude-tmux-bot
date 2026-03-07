@@ -90,21 +90,41 @@ async def _startup(
     state.bot_state.display_names = topic_state.get("display_names", {})
     state.save()
 
-    # 7. Notify control topic
+    # 7. Notify control topic (edit existing status message or send new)
+    import datetime
     from aiogram.exceptions import TelegramRetryAfter
-    for _attempt in range(3):
+    status_text = f"Bot running. Last restart: {datetime.datetime.now().strftime('%H:%M:%S')}"
+    status_msg_id = state.bot_state.control_status_msg_id
+    sent_new = False
+    if status_msg_id:
         try:
-            await bot.send_message(
+            await bot.edit_message_text(
                 chat_id=settings.chat_id,
-                message_thread_id=control_id,
-                text="Bot started.",
+                message_id=status_msg_id,
+                text=status_text,
             )
-            break
-        except TelegramRetryAfter as e:
-            await asyncio.sleep(e.retry_after)
         except Exception:
-            logger.warning("Failed to send startup message")
-            break
+            status_msg_id = None  # Edit failed, send new
+
+    if not status_msg_id:
+        for _attempt in range(3):
+            try:
+                msg = await bot.send_message(
+                    chat_id=settings.chat_id,
+                    message_thread_id=control_id,
+                    text=status_text,
+                )
+                state.bot_state.control_status_msg_id = msg.message_id
+                sent_new = True
+                break
+            except TelegramRetryAfter as e:
+                await asyncio.sleep(e.retry_after)
+            except Exception:
+                logger.warning("Failed to send startup message")
+                break
+
+    if sent_new:
+        state.save()
 
     logger.info("Startup complete")
 

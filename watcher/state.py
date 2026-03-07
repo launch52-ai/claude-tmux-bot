@@ -38,6 +38,7 @@ class TopicState:
 class BotState:
     topic_mode: str = "session"
     control_topic_id: int | None = None
+    control_status_msg_id: int | None = None
     caffeinate_active: bool = False
     topics: dict[str, TopicState] = field(default_factory=dict)
     display_names: dict[str, str] = field(default_factory=dict)
@@ -60,6 +61,7 @@ class StateManager:
             raw = json.loads(self._state_file.read_text())
             self._bot_state.topic_mode = raw.get("topic_mode", "session")
             self._bot_state.control_topic_id = raw.get("control_topic_id")
+            self._bot_state.control_status_msg_id = raw.get("control_status_msg_id")
             self._bot_state.caffeinate_active = raw.get("caffeinate_active", False)
             self._bot_state.display_names = raw.get("display_names", {})
 
@@ -92,6 +94,7 @@ class StateManager:
         data: dict[str, Any] = {
             "topic_mode": self._bot_state.topic_mode,
             "control_topic_id": self._bot_state.control_topic_id,
+            "control_status_msg_id": self._bot_state.control_status_msg_id,
             "caffeinate_active": self._bot_state.caffeinate_active,
             "display_names": self._bot_state.display_names,
             "topics": {},

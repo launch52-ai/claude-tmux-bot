@@ -60,9 +60,18 @@ class PaneWatcher:
 
     async def start(self) -> None:
         self._running = True
+        self._warm_up()
         logger.info("Pane watcher started")
         while self._running:
             await self._poll_cycle()
+
+    def _warm_up(self) -> None:
+        """Prime capture hashes and dedup state without sending anything."""
+        for pane_id in self._state.all_pane_ids():
+            content = self._capture.capture_if_changed(pane_id)
+            if content is not None:
+                text, _ = format_terminal_output(content, self._settings.text_line_limit)
+                self._last_sent_text[pane_id] = text
 
     def stop(self) -> None:
         self._running = False
