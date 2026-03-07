@@ -115,6 +115,10 @@ _YES_NO_RE = re.compile(
 )
 
 _IDLE_RE = re.compile(r"[❯›>$%#]\s*$")
+# Match common shell prompts: user@host path %, (venv) $, etc.
+_SHELL_PROMPT_RE = re.compile(
+    r"^(?:\([^)]+\)\s*)?(?:\w+@[\w.-]+\s+)?(?:[\w.~/-]+\s+)?[❯›>$%#]\s*$"
+)
 
 
 def detect_prompt(text: str) -> DetectedPrompt | None:
@@ -126,7 +130,7 @@ def detect_prompt(text: str) -> DetectedPrompt | None:
 
     # Check idle prompt first (most common)
     last_line = lines[-1].strip()
-    if _IDLE_RE.search(last_line) and len(last_line) < 10:
+    if _IDLE_RE.search(last_line) and (len(last_line) < 10 or _SHELL_PROMPT_RE.match(last_line)):
         return IdlePrompt()
 
     # Bash approval

@@ -23,6 +23,11 @@ def test_detect_idle_dollar() -> None:
     assert isinstance(result, IdlePrompt)
 
 
+def test_detect_idle_long_shell_prompt() -> None:
+    result = detect_prompt("some output\nzzeynalov@ZEYNALOV-2 zangy-mobile %")
+    assert isinstance(result, IdlePrompt)
+
+
 def test_detect_bash_approval() -> None:
     text = "Bash command: npm install express"
     result = detect_prompt(text)
