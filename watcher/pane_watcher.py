@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from aiogram import Bot
 
 from bot import keyboards
+from bot.rate_limiter import GroupRateLimiter
 from bot.formatters import (
     format_activity_notification,
     format_prompt_source,
@@ -42,12 +43,14 @@ class PaneWatcher:
         tmux: TmuxManager,
         state: StateManager,
         settings: "Settings",
+        rate_limiter: GroupRateLimiter | None = None,
     ) -> None:
         self._bot = bot
         self._chat_id = chat_id
         self._tmux = tmux
         self._state = state
         self._settings = settings
+        self._limiter = rate_limiter
         self._capture = PaneCapture(tmux)
         self._running = False
         self._last_output_time: dict[str, float] = {}
@@ -163,6 +166,8 @@ class PaneWatcher:
                     except Exception:
                         pass
 
+                if self._limiter is not None:
+                    await self._limiter.acquire()
                 msg = await self._bot.send_message(
                     chat_id=self._chat_id,
                     message_thread_id=topic_id,
@@ -226,6 +231,8 @@ class PaneWatcher:
                     pass
             text = format_prompt_source(window_name, pane_index, text)
 
+        if self._limiter is not None:
+            await self._limiter.acquire()
         await self._bot.send_message(
             chat_id=self._chat_id,
             message_thread_id=topic_id,

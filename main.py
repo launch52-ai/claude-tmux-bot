@@ -9,6 +9,7 @@ from aiogram import Bot, Dispatcher
 
 from bot.handlers import control_router, session_router, setup_routers
 from bot.middleware import AuthMiddleware
+from bot.rate_limiter import GroupRateLimiter
 from bot.topics import TopicManager
 from claude.hooks import install_hooks
 from config import Settings
@@ -160,12 +161,15 @@ async def main() -> None:
     dp["settings"] = settings
     dp["bot"] = bot
 
+    # Shared rate limiter for Telegram group send calls
+    send_limiter = GroupRateLimiter()
+
     # Watchers
     session_watcher = SessionWatcher(
         bot, settings.chat_id, tmux, topics, state
     )
-    claude_watcher = ClaudeWatcher(bot, settings.chat_id, state)
-    pane_watcher = PaneWatcher(bot, settings.chat_id, tmux, state, settings)
+    claude_watcher = ClaudeWatcher(bot, settings.chat_id, state, send_limiter)
+    pane_watcher = PaneWatcher(bot, settings.chat_id, tmux, state, settings, send_limiter)
 
     # Startup
     await _startup(bot, settings, tmux, topics, state)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramRetryAfter
 
 from bot import keyboards
+from bot.rate_limiter import GroupRateLimiter
 from bot.formatters import (
     format_hook_tool_use,
     format_stop_event,
@@ -31,6 +33,35 @@ logger = logging.getLogger(__name__)
 
 _TRANSCRIPT_POLL_INTERVAL = 2.0
 
+# Status emojis for tool use lines
+_STATUS_RUNNING = "\U0001f7e1"  # 🟡
+_STATUS_DONE = "\U0001f7e2"  # 🟢
+_STATUS_FAILED = "\U0001f534"  # 🔴
+
+
+@dataclass
+class _ToolLine:
+    tool_use_id: str
+    text: str
+    status: str = _STATUS_RUNNING
+
+
+@dataclass
+class _ActivityMessage:
+    """Tracks a single editable Telegram message that accumulates tool use lines."""
+    message_id: int
+    topic_id: int
+    lines: list[_ToolLine] = field(default_factory=list)
+
+    def build_text(self) -> str:
+        return "\n".join(f"{line.status} {line.text}" for line in self.lines)
+
+    def find_line(self, tool_use_id: str) -> _ToolLine | None:
+        for line in self.lines:
+            if line.tool_use_id == tool_use_id:
+                return line
+        return None
+
 
 class ClaudeWatcher:
     def __init__(
@@ -38,15 +69,19 @@ class ClaudeWatcher:
         bot: Bot,
         chat_id: int,
         state: StateManager,
+        rate_limiter: GroupRateLimiter | None = None,
     ) -> None:
         self._bot = bot
         self._chat_id = chat_id
         self._state = state
+        self._limiter = rate_limiter
         self._hook_watcher = HookEventWatcher(self._on_hook_event)
         self._claude_active_panes: set[str] = set()
         self._transcript_readers: dict[str, TranscriptReader] = {}
         # session_id -> topic_id, so the transcript poller knows where to send
         self._session_topics: dict[str, int] = {}
+        # topic_id -> current activity message being edited
+        self._activity_msgs: dict[int, _ActivityMessage] = {}
         self._running = False
 
     async def start(self) -> None:
@@ -83,8 +118,10 @@ class ClaudeWatcher:
 
         if payload.event == HookEvent.PRE_TOOL_USE:
             await self._handle_tool_use(payload, topic_id)
+        elif payload.event == HookEvent.POST_TOOL_USE:
+            await self._handle_tool_done(payload, topic_id)
         elif payload.event == HookEvent.POST_TOOL_USE_FAILURE:
-            await self._handle_tool_failure(payload, topic_id, pane_id)
+            await self._handle_tool_failure(payload, topic_id)
         elif payload.event == HookEvent.STOP:
             await self._handle_stop(payload, topic_id, pane_id)
         elif payload.event == HookEvent.NOTIFICATION:
@@ -92,32 +129,75 @@ class ClaudeWatcher:
         elif payload.event == HookEvent.SESSION_START:
             self._claude_active_panes.add(pane_id)
             self._init_transcript_reader(payload.session_id, topic_id)
-            await self._update_action_bar(topic_id, claude_active=True)
         elif payload.event == HookEvent.SESSION_END:
             self._claude_active_panes.discard(pane_id)
             self._cleanup_session(payload.session_id)
-            await self._update_action_bar(topic_id, claude_active=False)
+            self._activity_msgs.pop(topic_id, None)
         elif payload.event == HookEvent.USER_PROMPT_SUBMIT:
             self._claude_active_panes.add(pane_id)
             self._init_transcript_reader(payload.session_id, topic_id)
+            # Reset activity message for new turn
+            self._activity_msgs.pop(topic_id, None)
             await self._send_typing_indicator(topic_id)
-            await self._update_action_bar(topic_id, claude_active=True)
 
     async def _handle_tool_use(
         self, payload: HookPayload, topic_id: int
     ) -> None:
         event = parse_tool_use(payload)
         cwd = payload.data.get("cwd", "")
-        text = format_hook_tool_use(event, cwd)
-        await self._send_transcript_message(
-            topic_id, text, reply_markup=keyboards.action_bar_keyboard(claude_active=True),
+        tool_text = format_hook_tool_use(event, cwd)
+        tool_line = _ToolLine(
+            tool_use_id=event.tool_use_id,
+            text=tool_text,
+            status=_STATUS_RUNNING,
         )
 
-    async def _handle_tool_failure(
-        self, payload: HookPayload, topic_id: int, pane_id: str
+        activity = self._activity_msgs.get(topic_id)
+        if activity is not None:
+            activity.lines.append(tool_line)
+            await self._edit_activity_message(activity)
+        else:
+            # Send new message
+            msg = await self._send_activity_message(
+                topic_id, f"{tool_line.status} {tool_line.text}",
+            )
+            if msg:
+                activity = _ActivityMessage(
+                    message_id=msg.message_id,
+                    topic_id=topic_id,
+                    lines=[tool_line],
+                )
+                self._activity_msgs[topic_id] = activity
+
+    async def _handle_tool_done(
+        self, payload: HookPayload, topic_id: int
     ) -> None:
+        tool_use_id = payload.data.get("tool_use_id", "")
+        activity = self._activity_msgs.get(topic_id)
+        if activity is None:
+            return
+        line = activity.find_line(tool_use_id)
+        if line is None:
+            return
+        line.status = _STATUS_DONE
+        await self._edit_activity_message(activity)
+
+    async def _handle_tool_failure(
+        self, payload: HookPayload, topic_id: int
+    ) -> None:
+        tool_use_id = payload.data.get("tool_use_id", "")
+        activity = self._activity_msgs.get(topic_id)
+        if activity is not None:
+            line = activity.find_line(tool_use_id)
+            if line is not None:
+                line.status = _STATUS_FAILED
+                await self._edit_activity_message(activity)
+                return
+
+        # Fallback: send standalone failure message
         event = parse_tool_result(payload)
         text = format_tool_failure(event)
+        await self._acquire_send()
         await self._bot.send_message(
             chat_id=self._chat_id,
             message_thread_id=topic_id,
@@ -127,6 +207,15 @@ class ClaudeWatcher:
     async def _handle_stop(
         self, payload: HookPayload, topic_id: int, pane_id: str
     ) -> None:
+        # Mark all remaining running tools as done
+        activity = self._activity_msgs.get(topic_id)
+        if activity:
+            for line in activity.lines:
+                if line.status == _STATUS_RUNNING:
+                    line.status = _STATUS_DONE
+            await self._edit_activity_message(activity, final=True)
+            self._activity_msgs.pop(topic_id, None)
+
         # Flush any remaining transcript entries
         await self._flush_transcript(payload.session_id, topic_id)
 
@@ -134,12 +223,7 @@ class ClaudeWatcher:
         self._claude_active_panes.discard(pane_id)
         self._cleanup_session(payload.session_id)
         text = format_stop_event(event)
-        await self._bot.send_message(
-            chat_id=self._chat_id,
-            message_thread_id=topic_id,
-            text=text,
-        )
-        await self._update_action_bar(topic_id, claude_active=False)
+        await self._send_transcript_message(topic_id, text)
 
     async def _handle_notification(
         self, payload: HookPayload, topic_id: int
@@ -152,6 +236,7 @@ class ClaudeWatcher:
             text = body or "Claude is asking for permission..."
             tool_name = payload.data.get("tool_name", "")
             always_text = f"Always allow {tool_name}" if tool_name else "Always Allow"
+            await self._acquire_send()
             await self._bot.send_message(
                 chat_id=self._chat_id,
                 message_thread_id=topic_id,
@@ -159,6 +244,7 @@ class ClaudeWatcher:
                 reply_markup=keyboards.permission_keyboard(always_text),
             )
         elif notification_type == "idle_prompt":
+            await self._acquire_send()
             await self._bot.send_message(
                 chat_id=self._chat_id,
                 message_thread_id=topic_id,
@@ -166,36 +252,87 @@ class ClaudeWatcher:
             )
         else:
             text = f"{title}: {body}" if body else title
+            await self._acquire_send()
             await self._bot.send_message(
                 chat_id=self._chat_id,
                 message_thread_id=topic_id,
                 text=text,
             )
 
-    async def _update_action_bar(self, topic_id: int, claude_active: bool) -> None:
-        msg_id = self._state.get_action_bar_msg_id(topic_id)
-        kb = keyboards.action_bar_keyboard(claude_active=claude_active)
-        text = "Claude is working..." if claude_active else "Claude is idle."
+    async def _acquire_send(self) -> None:
+        if self._limiter is not None:
+            await self._limiter.acquire()
 
-        if msg_id:
+    async def _send_activity_message(
+        self, topic_id: int, text: str,
+    ) -> object:
+        """Send a new activity message with Stop button. Returns the Message."""
+        kb = keyboards.action_bar_keyboard(claude_active=True)
+        for attempt in range(3):
+            try:
+                await self._acquire_send()
+                return await self._bot.send_message(
+                    chat_id=self._chat_id,
+                    message_thread_id=topic_id,
+                    text=text,
+                    parse_mode="HTML",
+                    reply_markup=kb,
+                )
+            except TelegramRetryAfter as e:
+                await asyncio.sleep(e.retry_after)
+            except Exception:
+                # Fallback without HTML (no extra acquire — already acquired)
+                try:
+                    return await self._bot.send_message(
+                        chat_id=self._chat_id,
+                        message_thread_id=topic_id,
+                        text=text,
+                        reply_markup=kb,
+                    )
+                except Exception:
+                    logger.debug("Failed to send activity message")
+                return None
+        return None
+
+    async def _edit_activity_message(
+        self, activity: _ActivityMessage, final: bool = False,
+    ) -> None:
+        """Edit the activity message with updated tool lines."""
+        text = activity.build_text()
+        if len(text) > 4000:
+            text = text[:4000] + "\n..."
+        kb = keyboards.action_bar_keyboard(claude_active=not final)
+        try:
+            await self._bot.edit_message_text(
+                chat_id=self._chat_id,
+                message_id=activity.message_id,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=kb,
+            )
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after)
             try:
                 await self._bot.edit_message_text(
                     chat_id=self._chat_id,
-                    message_id=msg_id,
+                    message_id=activity.message_id,
+                    text=text,
+                    parse_mode="HTML",
+                    reply_markup=kb,
+                )
+            except Exception:
+                pass
+        except Exception:
+            # If edit fails (e.g. message too old), try without HTML
+            try:
+                await self._bot.edit_message_text(
+                    chat_id=self._chat_id,
+                    message_id=activity.message_id,
                     text=text,
                     reply_markup=kb,
                 )
-                return
             except Exception:
-                logger.debug("Failed to edit action bar, creating new one")
-
-        msg = await self._bot.send_message(
-            chat_id=self._chat_id,
-            message_thread_id=topic_id,
-            text=text,
-            reply_markup=kb,
-        )
-        self._state.set_action_bar_msg_id(topic_id, msg.message_id)
+                logger.debug("Failed to edit activity message")
 
     async def _send_typing_indicator(self, topic_id: int) -> None:
         try:
@@ -261,19 +398,20 @@ class ClaudeWatcher:
             for text in messages:
                 if not text.strip():
                     continue
+                # Text message resets the activity message so next tools
+                # get a fresh batch
+                self._activity_msgs.pop(topic_id, None)
                 await self._send_transcript_message(topic_id, text)
 
-    async def _send_transcript_message(
-        self, topic_id: int, text: str, reply_markup: object = None,
-    ) -> None:
+    async def _send_transcript_message(self, topic_id: int, text: str) -> None:
         for attempt in range(3):
             try:
+                await self._acquire_send()
                 await self._bot.send_message(
                     chat_id=self._chat_id,
                     message_thread_id=topic_id,
                     text=text,
                     parse_mode="HTML",
-                    reply_markup=reply_markup,
                 )
                 return
             except TelegramRetryAfter as e:
@@ -286,7 +424,6 @@ class ClaudeWatcher:
                         chat_id=self._chat_id,
                         message_thread_id=topic_id,
                         text=text,
-                        reply_markup=reply_markup,
                     )
                 except TelegramRetryAfter as e:
                     await asyncio.sleep(e.retry_after)
