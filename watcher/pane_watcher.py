@@ -120,33 +120,12 @@ class PaneWatcher:
     async def _handle_background_activity(
         self, pane_id: str, topic_id: int
     ) -> None:
-        # Check for prompts from background panes — surface immediately
+        # Only surface prompts from background panes — skip generic activity
         content = self._capture.get_last_content(pane_id)
         prompt = detect_prompt(content)
 
         if prompt is not None and not isinstance(prompt, IdlePrompt):
             await self._send_prompt(pane_id, topic_id, prompt)
-            return
-
-        # Get pane index for display
-        pane_index = 0
-        try:
-            pane_index = int(pane_id.replace("%", ""))
-        except ValueError:
-            pass
-
-        window_name = "unknown"
-        pane = self._tmux._get_pane(pane_id)
-        if pane and pane.window:
-            window_name = pane.window.name or "unknown"
-
-        text = format_activity_notification(window_name, pane_index)
-        await self._bot.send_message(
-            chat_id=self._chat_id,
-            message_thread_id=topic_id,
-            text=text,
-            reply_markup=keyboards.switch_pane_button(pane_id),
-        )
 
     async def _flush_pending_output(self) -> None:
         now = time.monotonic()
