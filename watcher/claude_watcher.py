@@ -225,7 +225,6 @@ class ClaudeWatcher:
     async def _handle_notification(
         self, payload: HookPayload, topic_id: int
     ) -> None:
-        logger.info("Notification payload: %s", payload.data)
         notification_type = payload.data.get("type", "")
         title = payload.data.get("title", "Notification")
         body = payload.data.get("body", "")

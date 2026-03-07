@@ -56,6 +56,7 @@ class PaneWatcher:
         self._last_output_time: dict[str, float] = {}
         self._pending_output: dict[str, str] = {}
         self._output_msg_ids: dict[str, int] = {}
+        self._last_sent_text: dict[str, str] = {}
 
     async def start(self) -> None:
         self._running = True
@@ -113,8 +114,10 @@ class PaneWatcher:
     ) -> None:
         # Check for prompts first
         prompt = detect_prompt(content)
-        if prompt is not None and not isinstance(prompt, IdlePrompt):
-            await self._send_prompt(pane_id, topic_id, prompt)
+        if prompt is not None:
+            if not isinstance(prompt, IdlePrompt):
+                await self._send_prompt(pane_id, topic_id, prompt)
+            # Skip buffering for ALL detected prompts (including idle)
             return
 
         # Debounce output
@@ -147,6 +150,12 @@ class PaneWatcher:
             text, truncated = format_terminal_output(
                 content, self._settings.text_line_limit
             )
+
+            # Skip if formatted output is identical to what was last sent
+            if text == self._last_sent_text.get(pane_id):
+                flushed.append(pane_id)
+                continue
+
             markup = keyboards.screenshot_button() if truncated else None
 
             try:
@@ -161,6 +170,7 @@ class PaneWatcher:
                             parse_mode="HTML",
                             reply_markup=markup,
                         )
+                        self._last_sent_text[pane_id] = text
                         flushed.append(pane_id)
                         continue
                     except Exception:
@@ -180,6 +190,7 @@ class PaneWatcher:
                     )
                 if msg:
                     self._output_msg_ids[pane_id] = msg.message_id
+                self._last_sent_text[pane_id] = text
             except Exception:
                 logger.exception("Failed to send output for pane %s", pane_id)
 
@@ -244,5 +255,3 @@ class PaneWatcher:
                 text=text,
                 reply_markup=markup,
             )
-        # Reset output message so next output gets a new message
-        self._output_msg_ids.pop(pane_id, None)
