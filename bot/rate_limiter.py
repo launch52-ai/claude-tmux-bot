@@ -52,6 +52,7 @@ class GroupSender:
 
     When sendMessage hits flood control, falls back to editing the last
     sent message in that topic (edits use a separate Telegram-side bucket).
+    If no previous message exists, waits and retries the send.
     """
 
     def __init__(self, bot: Bot, chat_id: int, max_per_minute: float = _DEFAULT_MAX_PER_MINUTE) -> None:
@@ -82,9 +83,28 @@ class GroupSender:
             )
             self._last_msg[topic_id] = (msg.message_id, text)
             return msg
-        except TelegramRetryAfter:
-            # Fallback: edit last message in this topic
-            return await self._edit_fallback(topic_id, text, parse_mode, reply_markup)
+        except TelegramRetryAfter as e:
+            logger.warning("Rate limited on send (topic %d), retry_after=%s", topic_id, e.retry_after)
+            # Try edit fallback first
+            edited = await self._edit_fallback(topic_id, text, parse_mode, reply_markup)
+            if edited:
+                return None
+            # No previous message to edit — wait and retry send
+            logger.info("No message to edit, waiting %ss to retry send", e.retry_after)
+            await asyncio.sleep(e.retry_after)
+            try:
+                msg = await self._bot.send_message(
+                    chat_id=self._chat_id,
+                    message_thread_id=topic_id,
+                    text=text,
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup,
+                )
+                self._last_msg[topic_id] = (msg.message_id, text)
+                return msg
+            except Exception:
+                logger.warning("Retry send also failed for topic %d", topic_id)
+                return None
         except Exception:
             # HTML parse error — retry without parse_mode
             if parse_mode:
@@ -97,8 +117,13 @@ class GroupSender:
                     )
                     self._last_msg[topic_id] = (msg.message_id, text)
                     return msg
-                except TelegramRetryAfter:
-                    return await self._edit_fallback(topic_id, text, None, reply_markup)
+                except TelegramRetryAfter as e:
+                    logger.warning("Rate limited on fallback send (topic %d)", topic_id)
+                    edited = await self._edit_fallback(topic_id, text, None, reply_markup)
+                    if edited:
+                        return None
+                    await asyncio.sleep(e.retry_after)
+                    return None
                 except Exception:
                     logger.debug("Failed to send message to topic %d", topic_id)
             return None
@@ -109,18 +134,16 @@ class GroupSender:
         new_text: str,
         parse_mode: str | None,
         reply_markup: InlineKeyboardMarkup | None,
-    ) -> Message | None:
-        """Try to append new_text to the last message via edit."""
+    ) -> bool:
+        """Try to append new_text to the last message via edit. Returns True if successful."""
         last = self._last_msg.get(topic_id)
         if last is None:
-            logger.debug("Rate limited, no previous message to edit in topic %d", topic_id)
-            return None
+            return False
 
         msg_id, old_text = last
         # Append new content separated by a divider
         combined = f"{old_text}\n\n{new_text}"
         if len(combined) > 4000:
-            # Truncate old content to make room
             combined = f"...\n\n{new_text}"
         try:
             await self._bot.edit_message_text(
@@ -131,10 +154,9 @@ class GroupSender:
                 reply_markup=reply_markup,
             )
             self._last_msg[topic_id] = (msg_id, combined)
-            logger.debug("Rate limit fallback: edited message %d in topic %d", msg_id, topic_id)
-            return None  # Edited, not a new message
+            logger.debug("Rate limit fallback: edited msg %d in topic %d", msg_id, topic_id)
+            return True
         except Exception:
-            # Try without parse_mode
             if parse_mode:
                 try:
                     await self._bot.edit_message_text(
@@ -144,11 +166,11 @@ class GroupSender:
                         reply_markup=reply_markup,
                     )
                     self._last_msg[topic_id] = (msg_id, combined)
-                    return None
+                    return True
                 except Exception:
                     pass
-            logger.debug("Rate limit fallback edit also failed in topic %d", topic_id)
-            return None
+            logger.debug("Edit fallback also failed in topic %d", topic_id)
+            return False
 
     def clear_topic(self, topic_id: int) -> None:
         """Clear tracked last message for a topic (e.g. on new turn)."""
