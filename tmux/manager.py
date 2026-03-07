@@ -62,7 +62,8 @@ class TmuxManager:
 
     def list_sessions(self) -> list[SessionInfo]:
         sessions: list[SessionInfo] = []
-        for idx, sess in enumerate(self.server.sessions):
+        raw_sessions = sorted(self.server.sessions, key=lambda s: int(s.session_id.lstrip("$")))
+        for idx, sess in enumerate(raw_sessions):
             windows: list[WindowInfo] = []
             for win in sess.windows:
                 panes: list[PaneInfo] = []
