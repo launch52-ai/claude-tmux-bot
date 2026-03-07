@@ -38,6 +38,7 @@ async def _startup(
         topic_map={t: ts.topic_id for t, ts in state.bot_state.topics.items()},
         control_topic_id=state.bot_state.control_topic_id,
         topic_mode=state.bot_state.topic_mode,
+        display_names=state.bot_state.display_names,
     )
 
     # 2. Install Claude Code hooks
@@ -55,7 +56,7 @@ async def _startup(
         # Register pane states
         for session in sessions:
             if topics.topic_mode == "session":
-                target = session.session_name
+                target = session.session_id
                 topic_id = topics.get_topic_id(target)
                 if topic_id is not None:
                     ts = state.ensure_topic_state(target, topic_id)
@@ -66,7 +67,7 @@ async def _startup(
                                 state.set_focused_pane(topic_id, pane.pane_id)
             else:
                 for window in session.windows:
-                    target = f"{session.session_name}:{window.window_name}"
+                    target = f"{session.session_id}:{window.window_id}"
                     topic_id = topics.get_topic_id(target)
                     if topic_id is not None:
                         ts = state.ensure_topic_state(target, topic_id)
@@ -84,6 +85,8 @@ async def _startup(
         await state.start_caffeinate()
 
     # 6. Save state
+    topic_state = topics.get_state()
+    state.bot_state.display_names = topic_state.get("display_names", {})
     state.save()
 
     # 7. Notify control topic

@@ -32,8 +32,8 @@ class SessionWatcher:
         self._state = state
         self._poll_interval = poll_interval
         self._running = False
-        self._known_sessions: set[str] = set()
-        self._known_windows: set[str] = set()
+        self._known_session_ids: set[str] = set()
+        self._known_window_ids: set[str] = set()
         self._last_poll_time: float = 0.0
         self._wake_threshold: float = poll_interval * 6  # 30s for 5s interval
 
@@ -64,11 +64,11 @@ class SessionWatcher:
     def _refresh_known(self) -> None:
         try:
             sessions = self._tmux.list_sessions()
-            self._known_sessions = {s.session_name for s in sessions}
-            self._known_windows = set()
+            self._known_session_ids = {s.session_id for s in sessions}
+            self._known_window_ids = set()
             for s in sessions:
                 for w in s.windows:
-                    self._known_windows.add(f"{s.session_name}:{w.window_name}")
+                    self._known_window_ids.add(f"{s.session_id}:{w.window_id}")
         except Exception:
             logger.exception("Failed to refresh known sessions")
 
@@ -78,27 +78,26 @@ class SessionWatcher:
             return
 
         sessions = self._tmux.list_sessions()
-        current_sessions = {s.session_name for s in sessions}
-        current_windows: set[str] = set()
+        current_session_ids = {s.session_id for s in sessions}
+        current_window_ids: set[str] = set()
         for s in sessions:
             for w in s.windows:
-                current_windows.add(f"{s.session_name}:{w.window_name}")
+                current_window_ids.add(f"{s.session_id}:{w.window_id}")
 
-        # Detect new sessions
-        new_sessions = current_sessions - self._known_sessions
-        removed_sessions = self._known_sessions - current_sessions
+        # Detect changes
+        new_sessions = current_session_ids - self._known_session_ids
+        removed_sessions = self._known_session_ids - current_session_ids
+        new_windows = current_window_ids - self._known_window_ids
+        removed_windows = self._known_window_ids - current_window_ids
 
-        # Detect new windows
-        new_windows = current_windows - self._known_windows
-        removed_windows = self._known_windows - current_windows
+        # Always sync to catch renames even without add/remove
+        await self._topics.sync_sessions(sessions)
 
         if new_sessions or removed_sessions or new_windows or removed_windows:
-            await self._topics.sync_sessions(sessions)
-
             # Register panes for new sessions/windows
             for session in sessions:
                 if self._topics.topic_mode == "session":
-                    target = session.session_name
+                    target = session.session_id
                     topic_id = self._topics.get_topic_id(target)
                     if topic_id is not None:
                         ts = self._state.ensure_topic_state(target, topic_id)
@@ -110,7 +109,7 @@ class SessionWatcher:
                                     self._state.set_focused_pane(topic_id, pane.pane_id)
                 else:
                     for window in session.windows:
-                        target = f"{session.session_name}:{window.window_name}"
+                        target = f"{session.session_id}:{window.window_id}"
                         topic_id = self._topics.get_topic_id(target)
                         if topic_id is not None:
                             ts = self._state.ensure_topic_state(target, topic_id)
@@ -122,29 +121,33 @@ class SessionWatcher:
             # Notify control topic about changes
             control_id = self._topics.control_topic_id
             if control_id:
-                for name in new_sessions:
+                session_names = {s.session_id: s.session_name for s in sessions}
+                for sid in new_sessions:
+                    name = session_names.get(sid, sid)
                     await self._bot.send_message(
                         chat_id=self._chat_id,
                         message_thread_id=control_id,
                         text=f"New session detected: {name}",
                     )
-                for name in removed_sessions:
+                for sid in removed_sessions:
                     await self._bot.send_message(
                         chat_id=self._chat_id,
                         message_thread_id=control_id,
-                        text=f"Session ended: {name}",
+                        text=f"Session ended: {sid}",
                     )
 
             # Clean up state for removed sessions
-            for name in removed_sessions:
-                self._state.remove_topic(name)
+            for sid in removed_sessions:
+                self._state.remove_topic(sid)
             for target in removed_windows:
                 self._state.remove_topic(target)
 
+            topic_state = self._topics.get_state()
+            self._state.bot_state.display_names = topic_state.get("display_names", {})
             self._state.save()
 
-        self._known_sessions = current_sessions
-        self._known_windows = current_windows
+        self._known_session_ids = current_session_ids
+        self._known_window_ids = current_window_ids
 
     async def _handle_wake(self, gap: float) -> None:
         minutes = int(gap / 60)
