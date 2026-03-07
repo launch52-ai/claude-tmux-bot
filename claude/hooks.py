@@ -211,13 +211,17 @@ def parse_hook_event(filepath: Path) -> HookPayload | None:
 
 def parse_tool_use(payload: HookPayload) -> ToolUseEvent:
     data = payload.data
-    tool_input = data.get("input", {}) if isinstance(data.get("input"), dict) else {}
+    # Hook payload uses "tool_input", transcript uses "input"
+    tool_input = data.get("tool_input") or data.get("input", {})
+    if not isinstance(tool_input, dict):
+        tool_input = {}
     return ToolUseEvent(
         tool_use_id=data.get("tool_use_id", ""),
         tool_name=data.get("tool_name", data.get("name", "")),
         file_path=tool_input.get("file_path") or tool_input.get("path"),
         command=tool_input.get("command"),
         input_summary=_summarize_tool_input(data.get("tool_name", ""), tool_input),
+        tool_input=tool_input,
     )
 
 

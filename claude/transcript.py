@@ -78,8 +78,13 @@ def _parse_transcript_entry(raw: dict[str, Any]) -> TranscriptEntry | None:
     except ValueError:
         return None
 
-    content_blocks: list[TranscriptContentBlock] = []
+    # Content may be at top level or nested inside "message"
     raw_content = raw.get("content", [])
+    msg = raw.get("message")
+    if isinstance(msg, dict) and not raw_content:
+        raw_content = msg.get("content", [])
+
+    content_blocks: list[TranscriptContentBlock] = []
 
     if isinstance(raw_content, str):
         content_blocks.append(TranscriptTextBlock(text=raw_content))
@@ -93,6 +98,7 @@ def _parse_transcript_entry(raw: dict[str, Any]) -> TranscriptEntry | None:
         role=role,
         timestamp=raw.get("timestamp", ""),
         content=content_blocks,
+        cwd=raw.get("cwd", ""),
         cost_usd=raw.get("costUSD") or raw.get("cost_usd"),
         input_tokens=raw.get("inputTokens") or raw.get("input_tokens"),
         output_tokens=raw.get("outputTokens") or raw.get("output_tokens"),

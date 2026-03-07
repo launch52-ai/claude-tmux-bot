@@ -125,6 +125,26 @@ def test_extract_cost_summary() -> None:
     assert summary.total_output_tokens == 150
 
 
+def test_nested_message_content() -> None:
+    """JSONL entries may have content nested inside 'message' dict."""
+    path = _make_transcript([
+        {
+            "type": "assistant",
+            "timestamp": "2024-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Nested text"}],
+            },
+        }
+    ])
+    reader = TranscriptReader(path)
+    entries = reader.read_new_entries()
+    assert len(entries) == 1
+    assert entries[0].role == TranscriptRole.ASSISTANT
+    assert isinstance(entries[0].content[0], TranscriptTextBlock)
+    assert entries[0].content[0].text == "Nested text"
+
+
 def test_missing_file() -> None:
     reader = TranscriptReader(Path("/nonexistent/file.jsonl"))
     entries = reader.read_new_entries()

@@ -147,17 +147,14 @@ def yes_no_keyboard() -> InlineKeyboardMarkup:
 
 
 def action_bar_keyboard(claude_active: bool = False) -> InlineKeyboardMarkup:
-    buttons = []
-    if claude_active:
-        buttons.append(InlineKeyboardButton(text="Stop", callback_data="action:stop"))
-    buttons.extend(
-        [
-            InlineKeyboardButton(text="Escape", callback_data="action:escape"),
-            InlineKeyboardButton(text="Ctrl+C", callback_data="action:ctrl_c"),
-            InlineKeyboardButton(text="Screenshot", callback_data="action:screenshot"),
-        ]
-    )
-    return InlineKeyboardMarkup(inline_keyboard=[buttons])
+    row = [
+        InlineKeyboardButton(
+            text="⏹ Stop" if claude_active else "Stop",
+            callback_data="action:stop",
+        ),
+        InlineKeyboardButton(text="Screenshot", callback_data="action:screenshot"),
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=[row])
 
 
 # --- Screenshot button (appended to truncated output) ---

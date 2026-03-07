@@ -188,10 +188,11 @@ class TopicManager:
                 message_thread_id=topic_id,
                 name=new_name,
             )
-            self._display_names[target] = new_name
             logger.info("Renamed topic '%s' -> '%s'", old_name, new_name)
         except Exception:
             logger.warning("Failed to rename topic '%s' -> '%s'", old_name, new_name)
+        # Always update to prevent retry loop on persistent failure
+        self._display_names[target] = new_name
 
     async def switch_mode(self, new_mode: str, sessions: list[SessionInfo]) -> None:
         if new_mode == self._topic_mode:

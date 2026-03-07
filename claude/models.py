@@ -41,6 +41,7 @@ class ToolUseEvent:
     file_path: str | None = None
     command: str | None = None
     input_summary: str = ""
+    tool_input: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,7 @@ class TranscriptEntry:
     role: TranscriptRole
     timestamp: str
     content: list[TranscriptContentBlock] = field(default_factory=list)
+    cwd: str = ""
     cost_usd: float | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None

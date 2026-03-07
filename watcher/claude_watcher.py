@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramRetryAfter
 
 from bot import keyboards
 from bot.formatters import (
+    format_hook_tool_use,
     format_stop_event,
     format_tool_failure,
     format_transcript_entry,
@@ -78,7 +80,9 @@ class ClaudeWatcher:
             transcript_path = payload.data.get("transcript_path")
             self._init_transcript_reader(payload.session_id, topic_id, transcript_path)
 
-        if payload.event == HookEvent.POST_TOOL_USE_FAILURE:
+        if payload.event == HookEvent.PRE_TOOL_USE:
+            await self._handle_tool_use(payload, topic_id)
+        elif payload.event == HookEvent.POST_TOOL_USE_FAILURE:
             await self._handle_tool_failure(payload, topic_id, pane_id)
         elif payload.event == HookEvent.STOP:
             await self._handle_stop(payload, topic_id, pane_id)
@@ -97,6 +101,14 @@ class ClaudeWatcher:
             self._init_transcript_reader(payload.session_id, topic_id)
             await self._send_typing_indicator(topic_id)
             await self._update_action_bar(topic_id, claude_active=True)
+
+    async def _handle_tool_use(
+        self, payload: HookPayload, topic_id: int
+    ) -> None:
+        event = parse_tool_use(payload)
+        cwd = payload.data.get("cwd", "")
+        text = format_hook_tool_use(event, cwd)
+        await self._send_transcript_message(topic_id, text)
 
     async def _handle_tool_failure(
         self, payload: HookPayload, topic_id: int, pane_id: str
@@ -246,11 +258,31 @@ class ClaudeWatcher:
             for text in messages:
                 if not text.strip():
                     continue
+                await self._send_transcript_message(topic_id, text)
+
+    async def _send_transcript_message(self, topic_id: int, text: str) -> None:
+        for attempt in range(3):
+            try:
+                await self._bot.send_message(
+                    chat_id=self._chat_id,
+                    message_thread_id=topic_id,
+                    text=text,
+                    parse_mode="HTML",
+                )
+                return
+            except TelegramRetryAfter as e:
+                logger.debug("Rate limited, waiting %ss", e.retry_after)
+                await asyncio.sleep(e.retry_after)
+            except Exception:
+                # HTML parse error — try without formatting once, then give up
                 try:
                     await self._bot.send_message(
                         chat_id=self._chat_id,
                         message_thread_id=topic_id,
                         text=text,
                     )
+                except TelegramRetryAfter as e:
+                    await asyncio.sleep(e.retry_after)
                 except Exception:
                     logger.debug("Failed to send transcript message")
+                return
